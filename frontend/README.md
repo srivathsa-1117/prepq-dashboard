@@ -29,7 +29,7 @@ frontend/
     filters/                    DateFilter, CourseFilter, SourceFilter, PlatformFilter
     overview/                   MetricCard, Funnel, TrendChart, TargetsEditor, EnrolledLeadsRevenue,
                                  AgingBuckets, SpeedToLead, FollowupDepth, LeadQuality, DisqualificationReasons,
-                                 ArrivalHeatmap, SalesTeamTable, SourcePerformance, CohortTable,
+                                 SalesTeamTable, SourcePerformance, CohortTable,
                                  RevenueSummary
     campaigns/                  CampaignKpis, CampaignTable, CampaignDetailDrawer
     creatives/                  CreativeHeroKpis, CreativeFilters, CreativeGrid, CreativeCard,

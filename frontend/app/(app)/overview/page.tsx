@@ -18,7 +18,6 @@ import { SpeedToLead } from '@/components/overview/SpeedToLead';
 import { FollowupDepth } from '@/components/overview/FollowupDepth';
 import { LeadQuality } from '@/components/overview/LeadQuality';
 import { DisqualificationReasons } from '@/components/overview/DisqualificationReasons';
-import { ArrivalHeatmap } from '@/components/overview/ArrivalHeatmap';
 import { SourcePerformance } from '@/components/overview/SourcePerformance';
 import { CohortTable } from '@/components/overview/CohortTable';
 import { SalesTeamTable } from '@/components/overview/SalesTeamTable';
@@ -114,9 +113,10 @@ function OverviewContent() {
         <h2 className="mb-3 text-sm font-semibold text-foreground">Marketing signals</h2>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <DisqualificationReasons filters={filters} />
-          <ArrivalHeatmap filters={filters} />
           <SourcePerformance filters={filters} />
-          <CohortTable filters={filters} />
+          <div className="xl:col-span-2">
+            <CohortTable filters={filters} />
+          </div>
         </div>
       </div>
 

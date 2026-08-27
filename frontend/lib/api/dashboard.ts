@@ -89,3 +89,7 @@ export function getEnrolledLeads(clientId: string) {
 export function setLeadRevenue(clientId: string, leadId: string, feePaid: number) {
   return apiFetch<void>(`/api/dashboard/leads/${leadId}/revenue`, { method: 'PATCH', body: { client_id: clientId, fee_paid: feePaid } });
 }
+
+export function setLeadCourse(clientId: string, leadId: string, courseId: string) {
+  return apiFetch<void>(`/api/dashboard/leads/${leadId}/course`, { method: 'PATCH', body: { client_id: clientId, course_id: courseId } });
+}

@@ -9,8 +9,7 @@ import {
   type PublicIntegration,
 } from '../repositories/integrationsRepo.js';
 import { getLatestSyncRuns } from '../repositories/syncRunsRepo.js';
-import { getClientById } from '../repositories/clientsRepo.js';
-import { registerOrUpdateSchedule } from '../scheduler/registerSchedules.js';
+import { ensureSyncJob } from '../repositories/syncJobsRepo.js';
 import * as metaAuth from '../integrations/meta/metaAuth.js';
 import * as googleAuth from '../integrations/google/googleAdsAuth.js';
 import { MerittoClient } from '../integrations/meritto/merittoClient.js';
@@ -22,26 +21,20 @@ import type { AuthContext, IntegrationConnectionPhase, IntegrationProvider } fro
 import { ValidationError, IntegrationError, ForbiddenError } from '../utils/errors.js';
 
 /**
- * Registers this client's morning sync schedule the moment a provider
- * finishes connecting (sync_jobs.integration_id is NOT NULL, so this can't
- * happen any earlier - see scheduler/registerSchedules.ts). Uses the
- * client's own timezone and the provider's default offset
- * (config/constants.ts::DEFAULT_SYNC_SCHEDULE); callers adjust the exact
- * time afterward via PATCH /api/sync/:provider/schedule if needed.
+ * Ensures this client+provider has a sync_jobs row the moment a provider finishes connecting, so
+ * the in-process scheduler (scheduler/syncScheduler.ts) picks it up on its next tick - enabled by
+ * default, using the client's own timezone and the provider's default time
+ * (config/constants.ts::DEFAULT_SYNC_SCHEDULE) until adjusted via PATCH /api/sync/:provider/schedule.
  *
- * Deliberately non-fatal: this runs *after* the integration/account has
- * already been saved (see connectIntegration below), so a Trigger.dev
- * outage or missing TRIGGER_SECRET_KEY should not make the whole connect
- * request look like it failed when the actual connection succeeded. Sync
- * scheduling can be retried later (e.g. by reconnecting, or once Trigger.dev
- * is configured) without the user having to redo the OAuth dance.
+ * Deliberately non-fatal: this runs *after* the integration/account has already been saved (see
+ * connectIntegration below), so a transient DB error here should not make the whole connect
+ * request look like it failed when the actual connection succeeded.
  */
 async function registerScheduleOnConnect(clientId: string, provider: IntegrationProvider, integrationId: string): Promise<void> {
   try {
-    const client = await getClientById(clientId);
-    await registerOrUpdateSchedule({ clientId, integrationId, provider, timezone: client?.timezone ?? 'UTC' });
+    await ensureSyncJob(clientId, integrationId, provider);
   } catch (error) {
-    logger.warn({ err: error, clientId, provider }, 'Failed to register sync schedule after connect - integration is still connected, schedule will need to be set up separately');
+    logger.warn({ err: error, clientId, provider }, 'Failed to create sync_jobs row after connect - integration is still connected, sync will need to be enabled separately');
   }
 }
 

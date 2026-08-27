@@ -1,11 +1,6 @@
 # Deployment & Operations Runbook
 
-Two independent deployments make up this backend:
-
-1. **The Fastify API** - runs in Docker on a Hostinger VPS (this doc, §4).
-2. **The Trigger.dev scheduled sync tasks** - deployed to Trigger.dev's infrastructure via their CLI (§5). It is a separate deploy step, not part of the Docker image - Trigger.dev hosts and schedules the sync jobs itself.
-
-Both talk to the same Supabase Postgres database.
+One deployment makes up this backend: **the Fastify API**, running in Docker on a Hostinger VPS (this doc, §4). Scheduled daily syncs run in-process inside that same container (`src/scheduler/syncScheduler.ts`) - there is no separate scheduler deployment or external job service to configure.
 
 ---
 
@@ -17,7 +12,7 @@ Four small additive migrations this backend specifically needed were already app
 - `backend_credentials_bridge_functions` (+ its `_v2` follow-up) - `get_integration_credentials` / `upsert_integration_credentials` / `clear_integration_credentials`
 - `backend_date_ranged_reporting_functions` (+ a null-handling fix) - `fn_campaign_performance_range` / `fn_creative_performance_range` / `fn_source_performance_range`
 - `lead_status_rules` - the client-configurable disposition-mapping table
-- `sync_jobs_metadata_column` - cron/timezone/Trigger.dev-schedule-id storage
+- `sync_jobs_metadata_column` - cron/timezone storage read by the in-process scheduler
 
 ### Standing up a *new* deployment against a different Supabase project
 
@@ -65,8 +60,7 @@ Provider credentials (`META_*`, `GOOGLE_ADS_*`, `MERITTO_*`) are only needed onc
 ```bash
 npm install
 cp .env.example .env   # fill in required vars
-npm run dev             # Fastify API on :8080, hot reload via tsx
-npm run trigger:dev     # separate terminal - local Trigger.dev dev server for scheduled/manual sync tasks
+npm run dev             # Fastify API on :8080, hot reload via tsx - scheduler starts automatically
 npm test                # 76 tests, no live credentials required
 ```
 
@@ -121,25 +115,7 @@ There's no database migration rollback tooling here (matching the "keep it purpo
 
 ---
 
-## 5. Deploy Trigger.dev scheduled sync tasks
-
-```bash
-# One-time: create/link a Trigger.dev project at https://cloud.trigger.dev
-npx trigger.dev@latest login
-
-# Deploy the tasks in src/scheduler/tasks/
-npm run trigger:deploy
-```
-
-This uploads `meta-sync`, `google-ads-sync`, `meritto-sync` and their `*-scheduled` counterparts to Trigger.dev's infrastructure. Trigger.dev needs network access to Supabase (to read `integrations`/`integration_accounts`, call the credential bridge functions, and write sync results) and to Meta/Google/Meritto's APIs - no inbound access to your VPS is required, since the tasks call out, they aren't called into.
-
-Set the same `SUPABASE_*`, `INTEGRATION_CREDENTIALS_ENC_KEY`, and provider credential env vars in the Trigger.dev project's environment variables (Project → Environment Variables in the dashboard, or `syncEnvVars` in `trigger.config.ts` if you prefer to source them from your own secret manager at deploy time).
-
-**Schedules are NOT created by deploying tasks** - they're created per-client via `scheduler/registerSchedules.ts`, which runs from the API server (triggered by `POST /api/clients` on client creation, or `PATCH /api/sync/:provider/schedule`). Deploy the API server and register at least one client before expecting any scheduled runs to fire.
-
----
-
-## 6. Connect Meta
+## 5. Connect Meta
 
 1. Frontend redirects the user through Meta's OAuth dialog (`https://www.facebook.com/v20.0/dialog/oauth?client_id=<META_APP_ID>&redirect_uri=<META_OAUTH_REDIRECT_URI>&scope=ads_read`).
 2. Meta redirects back to your frontend with `?code=...`.
@@ -158,11 +134,11 @@ Set the same `SUPABASE_*`, `INTEGRATION_CREDENTIALS_ENC_KEY`, and provider crede
    # -> { "integration": { "status": "connected", ... } }
    ```
 
-## 7. Connect Google Ads
+## 6. Connect Google Ads
 
 Same two-step shape as Meta, using `GOOGLE_ADS_OAUTH_REDIRECT_URI` and scope `https://www.googleapis.com/auth/adwords`, with `access_type=offline&prompt=consent` in the OAuth URL (required to receive a refresh token). Endpoint: `/api/integrations/google_ads/connect`, account id is the Google Ads customer id (digits only, no dashes).
 
-## 8. Connect Meritto
+## 7. Connect Meritto
 
 Single step - no OAuth dance, Meritto uses an API key/secret pair:
 ```bash
@@ -172,7 +148,7 @@ curl -X POST https://your-api/api/integrations/meritto/connect \
 ```
 This performs a live test call before saving credentials - a wrong key/secret fails the request immediately with `INTEGRATION_ERROR` rather than saving a broken connection. **Before this will work in production**, `MERITTO_API_BASE_URL` and the actual auth header scheme in `src/integrations/meritto/merittoClient.ts` must be confirmed against Meritto's account-specific developer portal access - see the `TODO(meritto)` comments there and in `ENVIRONMENT.md`.
 
-## 9. Run a manual sync
+## 8. Run a manual sync
 
 ```bash
 curl -X POST https://your-api/api/sync/meta/run \
@@ -182,27 +158,26 @@ curl -X POST https://your-api/api/sync/meta/run \
 ```
 Poll `GET /api/sync/status?client_id=<uuid>&provider=meta` until `lastRun.status` is no longer `running`.
 
-## 10. Schedule the morning sync
+## 9. Schedule the morning sync
 
-Registered automatically with defaults (06:00/06:10/06:20) when a client is created. To change a client's time:
+Registered automatically (enabled, default 06:00 in the client's own timezone for all three providers) when a client connects an integration - see `src/services/integrationService.ts::registerScheduleOnConnect`. The in-process scheduler (`src/scheduler/syncScheduler.ts`, ticking every minute inside the same API container) reads this live; no separate deploy or registration step is needed. To change a client's time:
 ```bash
 curl -X PATCH https://your-api/api/sync/meta/schedule \
   -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
   -d '{"cron_expression":"0 6 * * *","timezone":"Asia/Kolkata","enabled":true}'
 ```
-Repeat per provider (`meta`, `google_ads`, `meritto`) with staggered times.
+Repeat per provider (`meta`, `google_ads`, `meritto`). Meta and Google Ads run independently at their configured times; Meritto additionally waits for both to actually finish that day before it starts (its own configured time is effectively a floor, not a guarantee - see the scheduler's `meritoGate`), since its lead-attribution resolution depends on their campaign data already existing.
 
-## 11. Inspect failures
+## 10. Inspect failures
 
 1. `GET /api/sync/status?client_id=<uuid>` - shows `lastFailed` per provider with `errorMessage`.
-2. Trigger.dev dashboard (cloud.trigger.dev → your project → Runs) - full execution logs for the underlying task run, correlated via `sync_runs.trigger_dev_run_id`.
-3. `sync_runs.error_details` (jsonb) - error name + stack trace, queryable directly:
+2. `sync_runs.error_details` (jsonb) - error name + stack trace, queryable directly:
    ```sql
    select id, provider, status, error_message, error_details, started_at
    from sync_runs
    where client_id = '<uuid>' and status = 'failed'
    order by started_at desc limit 10;
    ```
-4. Application logs (`docker compose logs api`) - structured JSON via Pino in production, with every OAuth token/API key redacted (see `ARCHITECTURE.md` §5) - safe to share with a teammate for debugging without leaking credentials.
+3. Application logs (`docker compose logs api`) - structured JSON via Pino in production, with every OAuth token/API key redacted (see `ARCHITECTURE.md` §5) - safe to share with a teammate for debugging without leaking credentials. The scheduler logs each tick's decisions at `debug` level and every fire/skip/defer at `info`/`warn`.
 
-A failed sync never blocks the next scheduled run - just retry manually (§9) or wait for tomorrow's schedule; idempotent upserts mean there's no partial-state cleanup needed (see `SYNC_ENGINE.md`).
+A failed sync never blocks the next scheduled run - just retry manually (§8) or wait for tomorrow's schedule; idempotent upserts mean there's no partial-state cleanup needed (see `SYNC_ENGINE.md`). A `sync_runs` row still `running` more than 2 hours after it started is assumed orphaned by a crash/redeploy and is automatically marked `failed` the next time the API container starts (`failStaleRunningSyncRuns`), so a bad deploy can't permanently block that client+provider's future syncs.

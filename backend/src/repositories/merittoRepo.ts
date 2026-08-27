@@ -85,7 +85,13 @@ export async function upsertMerittoActivities(
         client_id: clientId,
         lead_id: leadId,
         meritto_activity_id: a.merittoActivityId,
-        activity_type: a.activityType ?? 'call',
+        // merittoTransform.ts sets activityType to null specifically to mean "not a call" -
+        // defaulting that back to 'call' here mislabeled every non-call activity as a call in
+        // the DB (didn't affect the dashboard, which counts from the already-correct in-memory
+        // value via summarizeCallActivity, but corrupted the raw lead_activities data for anyone
+        // querying it directly). activity_type is NOT NULL in the schema, so it still needs a
+        // fallback - 'other' is honest about not knowing, unlike claiming it was a call.
+        activity_type: a.activityType ?? 'other',
         activity_at: a.activityAt,
         outcome: a.disposition,
         notes: a.notes,

@@ -53,8 +53,6 @@ const envSchema = z.object({
   MERITTO_API_SECRET: z.string().optional(),
   MERITTO_WEBHOOK_SECRET: z.string().optional(),
 
-  TRIGGER_PROJECT_ID: z.string().optional(),
-  TRIGGER_SECRET_KEY: z.string().optional(),
   INTERNAL_SERVICE_SECRET: z.string().optional(),
 });
 

@@ -1,10 +1,17 @@
 import type { IntegrationProvider } from '../types/domain.js';
 
-/** Default morning sync offsets (minutes after the client's configured base hour). Configurable per client via sync_schedules. */
+/**
+ * Default daily morning-sync time per provider, in the client's own timezone (clients.timezone) -
+ * configurable per client via sync_jobs.metadata. All three default to the same time: the
+ * scheduler (scheduler/syncScheduler.ts) doesn't rely on a fixed minute offset between them to
+ * sequence Meta/Google before Meritto - it explicitly waits for Meta/Google's *actual* completion
+ * (checked via sync_runs), since real run durations vary far more than a fixed few minutes
+ * (Meritto alone can take 25+ minutes due to its own rate-limit pacing).
+ */
 export const DEFAULT_SYNC_SCHEDULE: Record<IntegrationProvider, { hour: number; minute: number }> = {
   meta: { hour: 6, minute: 0 },
-  google_ads: { hour: 6, minute: 10 },
-  meritto: { hour: 6, minute: 20 },
+  google_ads: { hour: 6, minute: 0 },
+  meritto: { hour: 6, minute: 0 },
 };
 
 /** How many days back an incremental daily sync re-pulls, to absorb late-arriving/attributed conversions. */
@@ -12,6 +19,12 @@ export const DEFAULT_LOOKBACK_DAYS = 3;
 
 /** Meritto reconciliation pulls a wider window nightly to self-heal missed updates. */
 export const MERITTO_RECONCILIATION_LOOKBACK_DAYS = 14;
+
+/** How long the scheduler waits for Meta+Google to finish today before running Meritto anyway (a sync with possibly-stale attribution beats no sync at all). */
+export const MERITTO_MAX_WAIT_MINUTES = 180;
+
+/** A sync_runs row still 'running' this long after it started is assumed orphaned by a process crash/redeploy, not a real long-running sync - see repositories/syncRunsRepo.ts::failStaleRunningSyncRuns. */
+export const STALE_SYNC_RUN_THRESHOLD_MINUTES = 120;
 
 export const PAGE_SIZE = {
   meta: 100,

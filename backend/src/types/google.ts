@@ -9,8 +9,9 @@
  * Docs: https://developers.google.com/google-ads/api/fields/latest/overview
  */
 
+/** `results` is genuinely absent (not an empty array) when a query matches zero rows - a real, documented Google Ads API quirk, not a guess (live-tested: an incremental metrics window with no new activity omits the field entirely). */
 export interface GoogleAdsSearchResponse<T> {
-  results: T[];
+  results?: T[];
   nextPageToken?: string;
 }
 

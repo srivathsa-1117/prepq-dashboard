@@ -63,7 +63,17 @@ function median(values: number[]): number | null {
 }
 
 export function speedToLead(leads: LeadRow[]): SpeedToLeadResult {
-  const called = leads.filter((l) => l.first_call_at !== null);
+  // created_at is day-granularity for this account (see deriveCreatedAtFromLeadAge in
+  // merittoTransform.ts - no real per-lead creation time exists, only a whole-day age), while
+  // first_call_at is a real sub-day activity timestamp. Diffing the two goes negative whenever
+  // the true creation moment was later in the day than its synthesized midnight anchor but the
+  // real call happened earlier the same calendar day - a same-day call, not a time-travel one.
+  // We genuinely can't say which hour bucket these belong to (true speed-to-lead could be
+  // anywhere from minutes to ~23h), so rather than fabricate a bucket - bucketForHours has no
+  // floor, so an uncorrected negative value would land 100% of these in '<1h', falsely inflating
+  // it (live-verified: ~19% of leads with a recorded first call) - they're excluded from both the
+  // median and the bucket histogram entirely.
+  const called = leads.filter((l) => l.first_call_at !== null && hoursBetween(l.created_at, l.first_call_at) >= 0);
   const hoursList = called.map((l) => hoursBetween(l.created_at, l.first_call_at!));
 
   const buckets = new Map<(typeof SPEED_TO_LEAD_BUCKETS)[number], { leads: number; connected: number }>(
@@ -173,7 +183,14 @@ export function funnel(leads: LeadRow[]): FunnelStage[] {
       stage,
       count,
       pctOfTotal: rate(count, total),
-      pctOfPrevious: previous !== null ? rate(count, previous) : null,
+      // Stages here are independent flags on the same lead (connected/status/demo_*/enrolled_at),
+      // not a strictly nested funnel - a lead can be marked qualified via a disposition rule
+      // without ever having `connected` set (e.g. imported already-Warm, or qualified through a
+      // channel this account's activity log doesn't capture as a call). That's real, not a bug,
+      // but it means count can exceed `previous` in a small enough sample, which would otherwise
+      // render as a nonsensical >100% "conversion from previous stage". Capped at 100% since a
+      // percentage of a stage can never truthfully exceed all of it.
+      pctOfPrevious: previous !== null ? Math.min(1, rate(count, previous)) : null,
     };
   });
 }

@@ -142,6 +142,31 @@ export async function getLatestSyncRuns(
   };
 }
 
+/**
+ * A sync_runs row still 'running' this long after it started was orphaned by a process
+ * crash/redeploy mid-sync, not a real long-running sync - called once on startup
+ * (src/index.ts) before the scheduler starts, since both the scheduler and the manual "Sync
+ * now" endpoint treat a 'running' row as "don't start another one" and would otherwise be
+ * permanently blocked for that client+provider. Deliberately does NOT call
+ * updateSyncJobRunTimes - leaving sync_jobs.last_run_at untouched means the scheduler still
+ * considers that day's sync "not done yet" and retries it on the next tick.
+ */
+export async function failStaleRunningSyncRuns(thresholdMinutes: number): Promise<number> {
+  const cutoff = new Date(Date.now() - thresholdMinutes * 60_000).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from('sync_runs')
+    .update({
+      status: 'failed',
+      completed_at: new Date().toISOString(),
+      error_message: 'Marked failed on startup - orphaned by a process restart/crash mid-sync',
+    })
+    .eq('status', 'running')
+    .lt('started_at', cutoff)
+    .select('id');
+  if (error) throw error;
+  return data?.length ?? 0;
+}
+
 export async function listSyncRuns(clientId: string, provider: IntegrationProvider, limit = 50): Promise<SyncRun[]> {
   const syncJob = await getSyncJob(clientId, provider);
   if (!syncJob) return [];

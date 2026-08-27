@@ -2,11 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
  * Fake Supabase client covering exactly the query-builder surface
- * upsertWithCounts() uses: from(table).select(cols).in(col, vals) for the
- * existing-keys lookup (scoped to every distinct value of the batch's first
- * key column, not just one), and from(table).upsert(rows, opts) for the
- * write. This lets the idempotency accounting logic (created vs. updated
- * counts) be verified without a live database, per spec §17.
+ * upsertWithCounts() uses: from(table).select(cols).in(col, vals).order(col, opts).range(from, to)
+ * for the existing-keys lookup (scoped to every distinct value of the batch's first key column,
+ * not just one, and paginated past PostgREST's 1000-row cap - see upsertHelper.ts), and
+ * from(table).upsert(rows, opts) for the write. This lets the idempotency accounting logic
+ * (created vs. updated counts) be verified without a live database, per spec §17.
+ *
+ * .order()/.range() are chainable no-ops that return all of `existingRows` on every call - fine
+ * for these tests since existingRows is always far short of the real 1000-row page size, so the
+ * pagination loop always terminates after a single page.
  */
 function makeFakeSupabase(existingRows: Record<string, unknown>[]) {
   const upsertCalls: Array<{ table: string; rows: unknown[]; opts: unknown }> = [];
@@ -15,9 +19,13 @@ function makeFakeSupabase(existingRows: Record<string, unknown>[]) {
   const client = {
     from: vi.fn((table: string) => ({
       select: vi.fn(() => ({
-        in: vi.fn(async (col: string, values: unknown[]) => {
+        in: vi.fn((col: string, values: unknown[]) => {
           inCalls.push({ col, values });
-          return { data: existingRows, error: null };
+          return {
+            order: vi.fn(() => ({
+              range: vi.fn(async () => ({ data: existingRows, error: null })),
+            })),
+          };
         }),
       })),
       upsert: vi.fn(async (rows: unknown[], opts: unknown) => {

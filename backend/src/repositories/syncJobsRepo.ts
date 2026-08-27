@@ -10,7 +10,6 @@ const JOB_TYPE: Record<IntegrationProvider, string> = {
 export interface SyncScheduleMetadata {
   cronExpression?: string;
   timezone?: string;
-  triggerDevScheduleId?: string;
 }
 
 export interface SyncJob {
@@ -119,4 +118,40 @@ export async function listSyncJobsForClient(clientId: string): Promise<SyncJob[]
   const { data, error } = await supabaseAdmin.from('sync_jobs').select('*').eq('client_id', clientId);
   if (error) throw error;
   return (data ?? []).map(toSyncJob);
+}
+
+export type SyncJobWithClient = SyncJob & { provider: IntegrationProvider; clientTimezone: string };
+
+const PROVIDER_BY_JOB_TYPE: Record<string, IntegrationProvider> = {
+  meta_morning_sync: 'meta',
+  google_ads_morning_sync: 'google_ads',
+  meritto_morning_sync: 'meritto',
+};
+
+/**
+ * Every enabled sync job across every client, joined with each client's timezone - the scheduler
+ * (scheduler/syncScheduler.ts) uses this once per tick to decide what's due to run. Two plain
+ * queries + an in-memory join rather than a PostgREST embedded-resource select, matching this
+ * repo's existing style (no embedded selects are used anywhere else in the repository layer).
+ * Skips clients that aren't 'active' (paused/archived) even if their sync_jobs row is enabled.
+ */
+export async function listAllEnabledSyncJobs(): Promise<SyncJobWithClient[]> {
+  const { data: jobRows, error } = await supabaseAdmin.from('sync_jobs').select('*').eq('enabled', true);
+  if (error) throw error;
+
+  const jobs = (jobRows ?? []).filter((r) => PROVIDER_BY_JOB_TYPE[r.job_type]);
+  if (jobs.length === 0) return [];
+
+  const clientIds = [...new Set(jobs.map((j) => j.client_id))];
+  const { data: clientRows, error: clientError } = await supabaseAdmin.from('clients').select('id, timezone, status').in('id', clientIds);
+  if (clientError) throw clientError;
+  const clientById = new Map((clientRows ?? []).map((c) => [c.id, c]));
+
+  return jobs
+    .map((row) => {
+      const client = clientById.get(row.client_id);
+      if (!client || client.status !== 'active') return null;
+      return { ...toSyncJob(row), provider: PROVIDER_BY_JOB_TYPE[row.job_type], clientTimezone: client.timezone ?? 'UTC' };
+    })
+    .filter((x): x is SyncJobWithClient => x !== null);
 }

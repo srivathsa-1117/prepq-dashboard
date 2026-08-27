@@ -1,12 +1,12 @@
-import { metaSyncTask } from '../scheduler/tasks/metaSyncTask.js';
-import { googleSyncTask } from '../scheduler/tasks/googleSyncTask.js';
-import { merittoSyncTask } from '../scheduler/tasks/merittoSyncTask.js';
+import { randomUUID } from 'node:crypto';
+import { runSyncInBackground } from '../sync/syncDispatcher.js';
 import { getLatestSyncRuns, listSyncRuns } from '../repositories/syncRunsRepo.js';
 import { getIntegration, getIntegrationIdForClientProvider } from '../repositories/integrationsRepo.js';
-import { getSyncJob, listSyncJobsForClient } from '../repositories/syncJobsRepo.js';
-import { registerOrUpdateSchedule } from '../scheduler/registerSchedules.js';
+import { ensureSyncJob, getSyncJob, listSyncJobsForClient, updateSyncSchedule } from '../repositories/syncJobsRepo.js';
+import { parseSimpleDailyCron } from '../scheduler/scheduleTime.js';
 import type { IntegrationProvider } from '../types/domain.js';
-import { ValidationError } from '../utils/errors.js';
+import { ConflictError, ValidationError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
 
 export async function getSyncStatusForClient(clientId: string, provider?: IntegrationProvider) {
   if (provider) {
@@ -29,10 +29,11 @@ export async function getSyncStatusForClient(clientId: string, provider?: Integr
 }
 
 /**
- * Triggers an on-demand sync via Trigger.dev (durable, retried, not bound to
- * the HTTP request's lifetime) rather than running the sync inline in the
- * Fastify handler - a manual "sync now" click and a scheduled morning run
- * go through the exact same underlying task and code path.
+ * Triggers an on-demand sync in-process (fire-and-forget - see sync/syncDispatcher.ts) rather
+ * than running it inline in the Fastify handler: syncs can take 25+ minutes (Meritto's own
+ * rate-limit pacing), far longer than any reasonable HTTP timeout, so this returns immediately
+ * and the sync continues in the background. A manual "sync now" click and a scheduled morning run
+ * (scheduler/syncScheduler.ts) go through the exact same dispatcher and underlying sync function.
  */
 export async function triggerManualSync(
   clientId: string,
@@ -50,16 +51,18 @@ export async function triggerManualSync(
     throw new ValidationError(`No integration record found for ${provider}`);
   }
 
-  const payload = { clientId, integrationId, runType: 'manual' as const, lookbackDays, triggeredBy: userId };
+  const { lastRun } = await getLatestSyncRuns(clientId, provider);
+  if (lastRun?.status === 'running') {
+    throw new ConflictError(`A ${provider} sync is already running for this client`);
+  }
 
-  const handle =
-    provider === 'meta'
-      ? await metaSyncTask.trigger(payload)
-      : provider === 'google_ads'
-        ? await googleSyncTask.trigger(payload)
-        : await merittoSyncTask.trigger(payload);
+  // Correlation id for logs only - the real sync_runs.id is created asynchronously inside
+  // runTrackedSync and isn't known yet at the time this function returns.
+  const runId = randomUUID();
+  const log = logger.child({ clientId, provider, runType: 'manual', dispatchId: runId });
+  runSyncInBackground(provider, { clientId, integrationId, runType: 'manual', lookbackDays, triggeredBy: userId }, log);
 
-  return { runId: handle.id };
+  return { runId };
 }
 
 export async function updateClientSchedule(input: {
@@ -73,7 +76,16 @@ export async function updateClientSchedule(input: {
   if (!integrationId) {
     throw new ValidationError(`${input.provider} is not connected for this client - connect it before configuring a schedule`);
   }
-  await registerOrUpdateSchedule({ ...input, integrationId });
+  if (!parseSimpleDailyCron(input.cronExpression)) {
+    throw new ValidationError('cron_expression must be a daily "minute hour * * *" expression - the only pattern the in-process scheduler supports');
+  }
+
+  await ensureSyncJob(input.clientId, integrationId, input.provider);
+  await updateSyncSchedule(input.clientId, input.provider, {
+    enabled: input.enabled,
+    metadata: { cronExpression: input.cronExpression, timezone: input.timezone },
+  });
+  logger.info({ ...input }, 'Sync schedule updated');
 }
 
 export async function listSchedules(clientId: string) {

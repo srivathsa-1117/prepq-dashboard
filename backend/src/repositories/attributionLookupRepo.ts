@@ -100,6 +100,30 @@ export interface ResolvedAttribution {
 }
 
 /**
+ * Matches a lead's raw course text against known course codes. Tries an exact match first
+ * (cheap, and correct for accounts where the field really is just the bare code), then falls
+ * back to a whole-word search within a longer descriptive name - this account's real Meritto
+ * data sends "Certified Public Accountant (US CPA)" / "Enrolled Agent (EA)", never the bare
+ * code alone, so an exact-match-only lookup left course_id null for every single lead (verified:
+ * 0/980 leads had it set). Word-boundary regex, not a plain substring check, so a short code
+ * like "EA" can't false-positive match inside an unrelated longer word.
+ */
+function resolveCourseId(courseIdByCode: Map<string, string>, productCode: string | null): string | null {
+  if (!productCode) return null;
+  const normalized = productCode.trim().toUpperCase();
+  if (!normalized) return null;
+
+  const exact = courseIdByCode.get(normalized);
+  if (exact) return exact;
+
+  for (const [code, id] of courseIdByCode) {
+    const pattern = new RegExp(`\\b${code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+    if (pattern.test(normalized)) return id;
+  }
+  return null;
+}
+
+/**
  * Resolves a normalized Meritto lead's free-text attribution against the
  * preloaded maps. Respects the `leads_attribution_chk` constraint: only the
  * FK columns for the detected platform are ever populated, never both.
@@ -108,7 +132,7 @@ export function resolveAttribution(
   maps: AttributionMaps,
   input: { productCode: string | null; source: string | null; campaign: string | null; adSet: string | null; creative: string | null },
 ): ResolvedAttribution {
-  const courseId = input.productCode ? (maps.courseIdByCode.get(input.productCode.trim().toUpperCase()) ?? null) : null;
+  const courseId = resolveCourseId(maps.courseIdByCode, input.productCode);
   const creativeId = lookup(maps.creativeIdByName, input.creative);
 
   const sourceLower = (input.source ?? '').toLowerCase();

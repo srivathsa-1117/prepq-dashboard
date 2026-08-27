@@ -45,7 +45,7 @@ async function searchPage<T>(
     },
   );
 
-  return { items: response.results, nextCursor: response.nextPageToken ?? null };
+  return { items: response.results ?? [], nextCursor: response.nextPageToken ?? null };
 }
 
 export class GoogleAdsClient {

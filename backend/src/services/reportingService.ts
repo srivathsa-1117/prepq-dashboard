@@ -13,6 +13,7 @@ import {
   upsertTargetsForMonth,
   getEnrolledLeads,
   updateLeadFeePaid,
+  updateLeadCourse,
   type TargetInput,
   getCourseFees,
   getCampaignDailyTrend,
@@ -238,6 +239,10 @@ export async function listEnrolledLeads(clientId: string) {
 
 export async function setLeadRevenue(clientId: string, leadId: string, feePaid: number): Promise<void> {
   await updateLeadFeePaid(clientId, leadId, feePaid);
+}
+
+export async function setLeadCourse(clientId: string, leadId: string, courseId: string): Promise<void> {
+  await updateLeadCourse(clientId, leadId, courseId);
 }
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ import {
   saveTargets,
   listEnrolledLeads,
   setLeadRevenue,
+  setLeadCourse,
 } from '../../services/reportingService.js';
 
 const monthQuerySchema = z.object({
@@ -45,6 +46,11 @@ const saveTargetsSchema = z.object({
 const setRevenueSchema = z.object({
   client_id: uuidSchema,
   fee_paid: z.number().min(0),
+});
+
+const setCourseSchema = z.object({
+  client_id: uuidSchema,
+  course_id: uuidSchema,
 });
 
 /**
@@ -167,6 +173,20 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       const body = setRevenueSchema.parse(request.body);
       const { leadId } = request.params as { leadId: string };
       await setLeadRevenue(body.client_id, uuidSchema.parse(leadId), body.fee_paid);
+      reply.status(204).send();
+    },
+  );
+
+  // Manual course assignment: most leads in this account have no course value in Meritto at all
+  // (see updateLeadCourse's comment in reportingRepo.ts) - a manager+ tags one directly, which
+  // then feeds Revenue by course, course-fee-fallback revenue/ROAS, and CourseFilter immediately.
+  app.patch(
+    '/api/dashboard/leads/:leadId/course',
+    { preHandler: [...commonPreHandler, requireRole('manager')] },
+    async (request, reply) => {
+      const body = setCourseSchema.parse(request.body);
+      const { leadId } = request.params as { leadId: string };
+      await setLeadCourse(body.client_id, uuidSchema.parse(leadId), body.course_id);
       reply.status(204).send();
     },
   );

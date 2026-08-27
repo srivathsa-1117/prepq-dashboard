@@ -395,6 +395,29 @@ export async function updateLeadFeePaid(clientId: string, leadId: string, feePai
   if (!count) throw new NotFoundError('Lead not found for this client');
 }
 
+/**
+ * Manual course assignment - for the ~98% of this account's leads where Meritto's own `course`
+ * field is blank (confirmed live: 958/980), there's no attribution source to derive this from
+ * automatically, so a human fills it in. Once set, every course-scoped number (Revenue by
+ * course, course-fee-fallback revenue/ROAS, CourseFilter) picks it up immediately - they all key
+ * off this same `leads.course_id` column, no separate wiring needed. courseId is validated
+ * against this client's own `courses` (not just any UUID) before writing, same trust boundary as
+ * updateLeadFeePaid's client_id scoping.
+ */
+export async function updateLeadCourse(clientId: string, leadId: string, courseId: string): Promise<void> {
+  const { data: course, error: courseError } = await supabaseAdmin.from('courses').select('id').eq('client_id', clientId).eq('id', courseId).maybeSingle();
+  if (courseError) throw courseError;
+  if (!course) throw new NotFoundError('Course not found for this client');
+
+  const { error, count } = await supabaseAdmin
+    .from('leads')
+    .update({ course_id: courseId }, { count: 'exact' })
+    .eq('client_id', clientId)
+    .eq('id', leadId);
+  if (error) throw error;
+  if (!count) throw new NotFoundError('Lead not found for this client');
+}
+
 export async function getCourseFees(clientId: string) {
   const { data, error } = await supabaseAdmin.from('courses').select('id, code, name, fee').eq('client_id', clientId);
   if (error) throw error;

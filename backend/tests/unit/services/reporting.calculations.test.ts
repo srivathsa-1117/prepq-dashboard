@@ -59,6 +59,24 @@ describe('metricCalculations', () => {
       const result = calc.speedToLead([makeLead({ first_call_at: null })]);
       expect(result.medianHours).toBeNull();
     });
+
+    it('excludes leads where first_call_at predates created_at, instead of fabricating a <1h bucket entry', () => {
+      // Real scenario for this account: created_at is synthesized at midnight UTC from a
+      // whole-day lead_age (no true per-lead creation time exists), so a same-day call can look
+      // like it happened *before* creation. That's calendar-day imprecision, not a real <1h
+      // response - see deriveCreatedAtFromLeadAge in merittoTransform.ts.
+      const leads = [
+        makeLead({ created_at: '2026-08-10T00:00:00Z', first_call_at: '2026-08-09T18:00:00Z' }), // negative hours
+        makeLead({ created_at: '2026-08-10T00:00:00Z', first_call_at: '2026-08-10T02:00:00Z' }), // real 2h, kept
+      ];
+
+      const result = calc.speedToLead(leads);
+      const totalBucketed = result.buckets.reduce((sum, b) => sum + b.leads, 0);
+
+      expect(totalBucketed).toBe(1);
+      expect(result.buckets.find((b) => b.bucket === '<1h')!.leads).toBe(0);
+      expect(result.medianHours).toBeCloseTo(2);
+    });
   });
 
   describe('uncalledAging', () => {
@@ -109,6 +127,26 @@ describe('metricCalculations', () => {
       const stages = calc.funnel([]);
       expect(stages.every((s) => s.pctOfTotal === 0)).toBe(true);
       expect(stages[0]!.pctOfPrevious).toBeNull();
+    });
+
+    it('caps pctOfPrevious at 100% when a later stage outnumbers an earlier one', () => {
+      // Stages are independent flags on a lead (connected/status/demo_*/enrolled_at), not a
+      // strictly nested pipeline - a lead can be marked qualified via a disposition rule without
+      // `connected` ever being set (e.g. imported already-Warm). With a small enough sample this
+      // makes a later stage's raw count exceed the previous stage's, which would otherwise render
+      // as a nonsensical >100% "conversion from previous stage".
+      const leads = [
+        makeLead({ connected: false, status: 'qualified' }),
+        makeLead({ connected: false, status: 'qualified' }),
+        makeLead({ connected: true, status: 'not_qualified' }),
+      ];
+
+      const stages = calc.funnel(leads);
+      const byStage = Object.fromEntries(stages.map((s) => [s.stage, s]));
+
+      expect(byStage.connected!.count).toBe(1);
+      expect(byStage.qualified!.count).toBe(2);
+      expect(byStage.qualified!.pctOfPrevious).toBe(1);
     });
   });
 

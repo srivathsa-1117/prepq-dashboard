@@ -151,3 +151,19 @@ export function useSetLeadRevenue(clientId: string | null) {
     },
   });
 }
+
+export function useSetLeadCourse(clientId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ leadId, courseId }: { leadId: string; courseId: string }) => dashboardApi.setLeadCourse(clientId!, leadId, courseId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['enrolledLeads', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['overview', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['revenue', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['sourcePerformance', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['campaignPerformance', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['creativePerformance', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['filterOptions', clientId] });
+    },
+  });
+}
