@@ -82,15 +82,32 @@ export function transformLead(raw: MerittoLead): NormalizedMerittoLead {
  * attempt is treated as connected unless one of those negative names says
  * otherwise. Best-effort heuristic, same style as dispositionIndicatesConnected
  * below - correct it via real call-outcome data if this proves too generous.
+ *
+ * "Contains 'call'" alone is too broad, though - live-verified against a Meritto
+ * cross-check (this account's own `total_outbound` field on 5 real leads, 4/5 had our
+ * call_attempts count higher). Root-caused to codes that mention "call" but aren't a
+ * rep manually calling the lead: a callback *request* (lead asking to be called, not a call
+ * happening), a bare settings toggle, inbound calls (the lead calling in - the opposite
+ * direction from an outbound attempt), the AI auto-dialer (Mio AI), and automated IVR
+ * campaign calls. Client's explicit call: Follow-up Depth should measure the sales team's own
+ * manual outreach, so all of those are excluded here rather than counted as attempts.
+ * Matched by category/name pattern (not this account's specific numeric codes), so this
+ * should generalize to other Meritto accounts using the same taxonomy conventions.
  */
 export function buildCallCodeIndex(codes: MerittoActivityCode[]): Map<string, 'connected' | 'missed'> {
   const index = new Map<string, 'connected' | 'missed'>();
   const missHints = ['missed', 'busy', 'not answered', 'failed', 'no answer'];
+  const excludedNamePatterns = ['requested', 'inbound', 'campaign'];
+  const excludedCategoryPatterns = ['configuration', 'ai-calling', 'inbound'];
 
   for (const c of codes) {
-    const lower = c.name.toLowerCase();
-    if (!lower.includes('call')) continue;
-    const isMiss = missHints.some((hint) => lower.includes(hint));
+    const nameLower = c.name.toLowerCase();
+    const categoryLower = c.category.toLowerCase();
+    if (!nameLower.includes('call')) continue;
+    if (excludedNamePatterns.some((p) => nameLower.includes(p))) continue;
+    if (excludedCategoryPatterns.some((p) => categoryLower.includes(p))) continue;
+
+    const isMiss = missHints.some((hint) => nameLower.includes(hint));
     index.set(String(c.code), isMiss ? 'missed' : 'connected');
   }
 

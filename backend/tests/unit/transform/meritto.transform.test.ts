@@ -58,16 +58,37 @@ describe('meritto transform', () => {
       const codes: MerittoActivityCode[] = [
         { code: 10, name: 'Missed Call - Outbound', category: 'IVR' },
         { code: 11, name: 'Call Busy', category: 'IVR' },
-        { code: 12, name: 'Mio AI Call Not Answered', category: 'AI-Calling' },
         { code: 13, name: 'Outbound Call Initiated', category: 'IVR' },
-        { code: 14, name: 'IVR Campaign Call Success', category: 'Conversation' },
       ];
       const index = buildCallCodeIndex(codes);
       expect(index.get('10')).toBe('missed');
       expect(index.get('11')).toBe('missed');
-      expect(index.get('12')).toBe('missed');
       expect(index.get('13')).toBe('connected');
-      expect(index.get('14')).toBe('connected');
+    });
+
+    it('excludes codes that mention "call" but are not a rep manually calling the lead - callback requests, a settings toggle, inbound calls, the AI dialer, and automated IVR campaigns', () => {
+      // Live-verified this account's own `total_outbound` field disagrees with our stored
+      // call_attempts on leads touched by these codes (4/5 real leads over-counted) - these were
+      // being counted as "call attempts" even though none of them are the sales team manually
+      // calling the lead. Client's explicit call: Follow-up Depth should measure the team's own
+      // outreach, not requests/inbound/automated events.
+      const codes: MerittoActivityCode[] = [
+        { code: 20, name: 'Requested Call Back', category: 'Call' },
+        { code: 21, name: 'Enable / Disable Request Callback from Dashboard', category: 'Configuration' },
+        { code: 22, name: 'Inbound opportunity call', category: 'Communicate' },
+        { code: 23, name: 'Missed Call', category: 'IVR- Inbound Call' },
+        { code: 24, name: 'Mio AI Call Not Answered', category: 'AI-Calling' },
+        { code: 25, name: 'IVR Campaign Call Success', category: 'Conversation' },
+        { code: 26, name: 'Outbound Call Initiated', category: 'IVR' }, // control: a genuine one, must still be kept
+      ];
+      const index = buildCallCodeIndex(codes);
+      expect(index.has('20')).toBe(false);
+      expect(index.has('21')).toBe(false);
+      expect(index.has('22')).toBe(false);
+      expect(index.has('23')).toBe(false);
+      expect(index.has('24')).toBe(false);
+      expect(index.has('25')).toBe(false);
+      expect(index.get('26')).toBe('connected');
     });
   });
 
