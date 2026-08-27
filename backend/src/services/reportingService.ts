@@ -30,7 +30,7 @@ import {
 import { getClientById } from '../repositories/clientsRepo.js';
 import { getCreativeFatigueMap, getCreativeFatigueDetail } from './fatigueService.js';
 import * as calc from './metricCalculations.js';
-import { resolveDateRange, previousEqualPeriod, currentMonthPacing, type DateRange } from '../utils/dateRanges.js';
+import { resolveDateRange, previousEqualPeriod, currentMonthPacing, dayKey, type DateRange } from '../utils/dateRanges.js';
 import type { DateRangePreset } from '../config/constants.js';
 import { NotFoundError } from '../utils/errors.js';
 
@@ -256,7 +256,7 @@ export async function getTrends(req: ResolvedRequest) {
 
   const leadsByDay = new Map<string, LeadRow[]>();
   for (const lead of leads) {
-    const day = lead.created_at.slice(0, 10);
+    const day = dayKey(lead.created_at, req.timezone);
     if (!leadsByDay.has(day)) leadsByDay.set(day, []);
     leadsByDay.get(day)!.push(lead);
   }

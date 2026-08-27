@@ -69,3 +69,14 @@ export function minutesPastScheduled(now: Date, timeZone: string, hour: number, 
   const p = getLocalParts(now, timeZone);
   return p.hour * 60 + p.minute - (hour * 60 + minute);
 }
+
+/**
+ * True iff a full Meritto backfill is due: never run before, or the last one completed at least
+ * intervalDays ago. Used to promote a day's Meritto reconciliation run into a full unfiltered
+ * backfill on a periodic cadence - see constants.ts's MERITTO_BACKFILL_INTERVAL_DAYS comment for
+ * why the windowed daily reconciliation alone can never catch a status change on an old lead.
+ */
+export function isBackfillDue(lastBackfillAt: Date | null, now: Date, intervalDays: number): boolean {
+  if (!lastBackfillAt) return true;
+  return now.getTime() - lastBackfillAt.getTime() >= intervalDays * 86_400_000;
+}

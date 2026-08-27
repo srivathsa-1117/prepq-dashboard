@@ -136,14 +136,18 @@ export function uncalledAging(uncalledLeads: LeadRow[], now: Date = new Date()):
 // Follow-up depth
 // ---------------------------------------------------------------------------
 
+/** connect_attempt values of 5+ (real, e.g. a lead who took 7 tries) fold into a single "5" bucket, labeled "Attempt 5+" on the dashboard, rather than a fixed 1-4 range that silently dropped them - a connected lead with connect_attempt >= 5 previously matched neither the byAttempt range check nor the neverConnected branch (`!lead.connected` is false for them), vanishing from the widget's total entirely. */
+const MAX_ATTEMPT_BUCKET = 5;
+
 export function followUpDepth(leads: LeadRow[]): { byAttempt: Record<number, number>; neverConnected: number } {
   const called = leads.filter((l) => l.call_attempts > 0);
-  const byAttempt: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  const byAttempt: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, [MAX_ATTEMPT_BUCKET]: 0 };
   let neverConnected = 0;
 
   for (const lead of called) {
-    if (lead.connect_attempt && lead.connect_attempt >= 1 && lead.connect_attempt <= 4) {
-      byAttempt[lead.connect_attempt] = (byAttempt[lead.connect_attempt] ?? 0) + 1;
+    if (lead.connect_attempt && lead.connect_attempt >= 1) {
+      const bucket = Math.min(lead.connect_attempt, MAX_ATTEMPT_BUCKET);
+      byAttempt[bucket] = (byAttempt[bucket] ?? 0) + 1;
     } else if (!lead.connected) {
       neverConnected += 1;
     }
@@ -432,9 +436,15 @@ export interface DisqualificationReasonBucket {
   pctOfDisqualified: number;
 }
 
-/** Reasons are whatever this client's Meritto dq_reason vocabulary actually contains - never a hardcoded list, since it's client-configured (handoff brief §5). */
+/**
+ * Reasons are whatever this client's Meritto dq_reason vocabulary actually contains - never a
+ * hardcoded list, since it's client-configured (handoff brief §5). Covers both 'not_qualified'
+ * and 'junk' statuses - merittoDispositionMap.ts assigns a dqReason to both (junk = attempts
+ * exhausted without connecting), so excluding junk here undercounted disqualifications and
+ * skewed the shown percentages relative to how many leads actually got disqualified.
+ */
 export function disqualificationReasons(leads: LeadRow[]): DisqualificationReasonBucket[] {
-  const withReason = leads.filter((l) => l.status === 'not_qualified' && l.dqReason);
+  const withReason = leads.filter((l) => (l.status === 'not_qualified' || l.status === 'junk') && l.dqReason);
   const counts = new Map<string, number>();
   for (const lead of withReason) {
     const reason = lead.dqReason!;

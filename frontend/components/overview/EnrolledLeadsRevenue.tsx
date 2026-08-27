@@ -127,6 +127,11 @@ function CourseCell({
  * so fee_paid never populates automatically. Enrollment itself comes from Meritto's own
  * lead_stage="Enrolled" disposition (real signal); revenue for those leads is entered here
  * manually since there's nowhere else it could come from for this account.
+ *
+ * Deliberately ignores the dashboard's date/course/source filters, unlike every other Overview
+ * widget: this is a data-entry surface for "every currently-enrolled lead that needs a course or
+ * revenue value filled in", not a filtered report - narrowing it by date/course/source would just
+ * hide leads still waiting on manual entry from the person doing that entry.
  */
 export function EnrolledLeadsRevenue() {
   const { selectedClientId, selectedRole } = useOrgClient();

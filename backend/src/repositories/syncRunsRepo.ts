@@ -167,6 +167,29 @@ export async function failStaleRunningSyncRuns(thresholdMinutes: number): Promis
   return data?.length ?? 0;
 }
 
+/**
+ * Most recent successful run of a specific runType (e.g. the last full Meritto backfill, as
+ * opposed to a windowed reconciliation run) - used by the scheduler to decide when a periodic
+ * backfill is due. sync_runs has no dedicated runType column (it lives in metadata, set at
+ * createSyncRun time), so this scans the most recent successful runs in memory rather than
+ * filtering on a jsonb path - 20 is comfortably more than a week of daily runs could ever produce
+ * before a weekly-cadence backfill shows up in the page.
+ */
+export async function getLastSuccessfulRunOfType(
+  clientId: string,
+  provider: IntegrationProvider,
+  runType: SyncRunType,
+): Promise<SyncRun | null> {
+  const syncJob = await getSyncJob(clientId, provider);
+  if (!syncJob) return null;
+
+  const { data, error } = await scopedQuery(clientId, syncJob.id).eq('status', 'success').order('started_at', { ascending: false }).limit(20);
+  if (error) throw error;
+
+  const match = (data ?? []).find((row) => (row.metadata as Record<string, unknown> | null)?.runType === runType);
+  return match ? toSyncRun(match, provider) : null;
+}
+
 export async function listSyncRuns(clientId: string, provider: IntegrationProvider, limit = 50): Promise<SyncRun[]> {
   const syncJob = await getSyncJob(clientId, provider);
   if (!syncJob) return [];

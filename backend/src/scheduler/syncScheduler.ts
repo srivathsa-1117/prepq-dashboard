@@ -2,11 +2,11 @@ import cron from 'node-cron';
 import { logger } from '../utils/logger.js';
 import { listAllEnabledSyncJobs, type SyncJobWithClient } from '../repositories/syncJobsRepo.js';
 import { getIntegration } from '../repositories/integrationsRepo.js';
-import { getLatestSyncRuns } from '../repositories/syncRunsRepo.js';
+import { getLatestSyncRuns, getLastSuccessfulRunOfType } from '../repositories/syncRunsRepo.js';
 import { runSyncInBackground } from '../sync/syncDispatcher.js';
-import { DEFAULT_SYNC_SCHEDULE, MERITTO_MAX_WAIT_MINUTES } from '../config/constants.js';
-import { isDueToday, isSameLocalDate, minutesPastScheduled, parseSimpleDailyCron } from './scheduleTime.js';
-import type { IntegrationProvider } from '../types/domain.js';
+import { DEFAULT_SYNC_SCHEDULE, MERITTO_MAX_WAIT_MINUTES, MERITTO_BACKFILL_INTERVAL_DAYS } from '../config/constants.js';
+import { isBackfillDue, isDueToday, isSameLocalDate, minutesPastScheduled, parseSimpleDailyCron } from './scheduleTime.js';
+import type { IntegrationProvider, SyncRunType } from '../types/domain.js';
 
 const TICK_CRON = '* * * * *';
 
@@ -76,6 +76,22 @@ async function meritoGate(
   return { proceed: true, timedOut: false };
 }
 
+/**
+ * Meritto's lead-list date filter is anchored to lead creation, not last-modified (see
+ * constants.ts's MERITTO_BACKFILL_INTERVAL_DAYS comment) - a lead older than the daily
+ * reconciliation window can never surface a disposition change through it, however wide that
+ * window is. Once per MERITTO_BACKFILL_INTERVAL_DAYS, this promotes the day's Meritto run to a
+ * full unfiltered backfill instead of the usual windowed reconciliation, bounding how stale any
+ * lead's status can get regardless of age. Checked against sync_runs history (not sync_jobs
+ * metadata) so a run that never completes successfully naturally gets retried the next day
+ * instead of falsely marking the backfill as done.
+ */
+async function resolveMerittoRunType(clientId: string, now: Date): Promise<SyncRunType> {
+  const lastBackfill = await getLastSuccessfulRunOfType(clientId, 'meritto', 'backfill');
+  const lastBackfillAt = lastBackfill ? new Date(lastBackfill.completedAt ?? lastBackfill.startedAt) : null;
+  return isBackfillDue(lastBackfillAt, now, MERITTO_BACKFILL_INTERVAL_DAYS) ? 'backfill' : 'scheduled';
+}
+
 async function evaluateJob(job: SyncJobWithClient, now: Date, clientJobs: SyncJobWithClient[]): Promise<void> {
   if (!job.enabled) return;
 
@@ -84,6 +100,8 @@ async function evaluateJob(job: SyncJobWithClient, now: Date, clientJobs: SyncJo
 
   const { lastRun } = await getLatestSyncRuns(job.clientId, job.provider);
   if (lastRun?.status === 'running') return; // already in flight - idempotency guard against double-firing
+
+  let runType: SyncRunType = 'scheduled';
 
   if (job.provider === 'meritto') {
     const gate = await meritoGate(job, clientJobs, now, timezone, hour, minute);
@@ -94,11 +112,12 @@ async function evaluateJob(job: SyncJobWithClient, now: Date, clientJobs: SyncJo
     if (gate.timedOut) {
       logger.warn({ clientId: job.clientId, waitingOn: gate.waitingOn }, 'Meritto proceeding without waiting further - max wait exceeded');
     }
+    runType = await resolveMerittoRunType(job.clientId, now);
   }
 
-  const log = logger.child({ clientId: job.clientId, provider: job.provider, runType: 'scheduled' });
+  const log = logger.child({ clientId: job.clientId, provider: job.provider, runType });
   log.info('Scheduler firing sync');
-  runSyncInBackground(job.provider, { clientId: job.clientId, integrationId: job.integrationId, runType: 'scheduled' }, log);
+  runSyncInBackground(job.provider, { clientId: job.clientId, integrationId: job.integrationId, runType }, log);
 }
 
 async function tick(): Promise<void> {

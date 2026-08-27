@@ -232,7 +232,7 @@ describe('metricCalculations', () => {
   });
 
   describe('disqualificationReasons', () => {
-    it('only counts not_qualified leads with a reason, grouped by that reason', () => {
+    it('counts not_qualified leads with a reason, grouped by that reason', () => {
       const leads = [
         makeLead({ status: 'not_qualified', dqReason: "Can't afford" }),
         makeLead({ status: 'not_qualified', dqReason: "Can't afford" }),
@@ -248,9 +248,63 @@ describe('metricCalculations', () => {
       expect(reasons).toHaveLength(2);
     });
 
+    it('also counts junk leads with a reason, not just not_qualified', () => {
+      // merittoDispositionMap.ts assigns a dqReason to both not_qualified and junk statuses
+      // (junk = call attempts exhausted without ever connecting) - excluding junk here
+      // undercounted real disqualifications and skewed the shown percentages.
+      const leads = [
+        makeLead({ status: 'not_qualified', dqReason: 'Not eligible' }),
+        makeLead({ status: 'junk', dqReason: 'Unreachable' }),
+        makeLead({ status: 'junk', dqReason: 'Unreachable' }),
+        makeLead({ status: 'not_reachable', dqReason: 'Unreachable' }), // wrong status - excluded
+      ];
+
+      const reasons = calc.disqualificationReasons(leads);
+
+      expect(reasons).toContainEqual({ reason: 'Unreachable', count: 2, pctOfDisqualified: 2 / 3 });
+      expect(reasons).toContainEqual({ reason: 'Not eligible', count: 1, pctOfDisqualified: 1 / 3 });
+      expect(reasons).toHaveLength(2);
+    });
+
     it('never invents a reason vocabulary - only reasons actually present in the data appear', () => {
       const reasons = calc.disqualificationReasons([makeLead({ status: 'not_qualified', dqReason: 'Timing' })]);
       expect(reasons.map((r) => r.reason)).toEqual(['Timing']);
+    });
+  });
+
+  describe('followUpDepth', () => {
+    it('buckets by connect_attempt, and treats a lead who never connected (with real call attempts) separately', () => {
+      const leads = [
+        makeLead({ call_attempts: 1, connect_attempt: 1, connected: true }),
+        makeLead({ call_attempts: 2, connect_attempt: 2, connected: true }),
+        makeLead({ call_attempts: 3, connect_attempt: null, connected: false }),
+        makeLead({ call_attempts: 0, connect_attempt: null, connected: false }), // never called - excluded entirely
+      ];
+
+      const result = calc.followUpDepth(leads);
+
+      expect(result.byAttempt[1]).toBe(1);
+      expect(result.byAttempt[2]).toBe(1);
+      expect(result.neverConnected).toBe(1);
+    });
+
+    it('folds a connect_attempt of 5 or more into a single 5+ bucket instead of dropping the lead', () => {
+      // Previously: a connected lead with connect_attempt >= 5 matched neither the fixed 1-4
+      // range check nor the neverConnected branch (`!lead.connected` is false for them), so they
+      // silently vanished from the widget's total - not double-counted, not undercounted
+      // visibly, just gone.
+      const leads = [
+        makeLead({ call_attempts: 7, connect_attempt: 7, connected: true }),
+        makeLead({ call_attempts: 5, connect_attempt: 5, connected: true }),
+        makeLead({ call_attempts: 2, connect_attempt: 2, connected: true }),
+      ];
+
+      const result = calc.followUpDepth(leads);
+      const total = Object.values(result.byAttempt).reduce((sum, n) => sum + n, 0) + result.neverConnected;
+
+      expect(total).toBe(3);
+      expect(result.byAttempt[5]).toBe(2);
+      expect(result.byAttempt[2]).toBe(1);
     });
   });
 

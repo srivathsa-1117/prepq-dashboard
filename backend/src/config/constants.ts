@@ -20,6 +20,19 @@ export const DEFAULT_LOOKBACK_DAYS = 3;
 /** Meritto reconciliation pulls a wider window nightly to self-heal missed updates. */
 export const MERITTO_RECONCILIATION_LOOKBACK_DAYS = 14;
 
+/**
+ * Meritto's lead-list date filter is anchored to lead creation/age, not last-modified (confirmed
+ * empirically - a 94-day-old lead whose disposition changed to "Enrolled" was invisible to a
+ * 90-day windowed pull but visible in an unfiltered one). That means the daily reconciliation
+ * window above can NEVER pick up a status change on a lead older than it, no matter how wide it
+ * is, since sales cycles for this account's courses regularly run well past 14 days. Rather than
+ * widen the daily window indefinitely (each extra 30-day chunk adds real, rate-limited API time -
+ * see merittoSync.ts), the scheduler runs one full unfiltered backfill per client at this cadence,
+ * layered on top of the fast daily windowed reconciliation: recent leads stay fresh daily, and no
+ * lead's status can go stale for longer than this many days regardless of age.
+ */
+export const MERITTO_BACKFILL_INTERVAL_DAYS = 7;
+
 /** How long the scheduler waits for Meta+Google to finish today before running Meritto anyway (a sync with possibly-stale attribution beats no sync at all). */
 export const MERITTO_MAX_WAIT_MINUTES = 180;
 

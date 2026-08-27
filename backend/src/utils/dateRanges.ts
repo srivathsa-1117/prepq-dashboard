@@ -93,6 +93,12 @@ export function cohortMonthKey(isoTimestamp: string, timezone: string): string {
   return parts;
 }
 
+/** Calendar day key, e.g. "2026-08-27", for a created_at timestamp in the client's timezone. */
+export function dayKey(isoTimestamp: string, timezone: string): string {
+  const d = new Date(isoTimestamp);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+
 export function hoursBetween(fromIso: string, toIso: string): number {
   return (new Date(toIso).getTime() - new Date(fromIso).getTime()) / 3_600_000;
 }

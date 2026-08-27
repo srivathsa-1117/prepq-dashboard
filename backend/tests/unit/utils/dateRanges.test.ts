@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDateRange, previousEqualPeriod, currentMonthPacing, cohortMonthKey, daysBetweenInclusive } from '../../../src/utils/dateRanges.js';
+import { resolveDateRange, previousEqualPeriod, currentMonthPacing, cohortMonthKey, dayKey, daysBetweenInclusive } from '../../../src/utils/dateRanges.js';
 
 const FIXED_NOW = new Date('2026-08-17T10:00:00.000Z'); // a Monday, mid-August, mid-Q3
 
@@ -45,5 +45,12 @@ describe('dateRanges', () => {
     expect(cohortMonthKey('2026-08-05T23:50:00.000Z', 'UTC')).toBe('2026-08');
     // Just before midnight UTC but past midnight in IST (+5:30) - still same/next day, cohort month usually stable either way.
     expect(cohortMonthKey('2026-01-31T20:00:00.000Z', 'Asia/Kolkata')).toBe('2026-02');
+  });
+
+  it('buckets a timestamp into its calendar day key in the given timezone', () => {
+    expect(dayKey('2026-08-05T23:50:00.000Z', 'UTC')).toBe('2026-08-05');
+    // 19:00 UTC is already past midnight (00:30) the next day in IST (+5:30).
+    expect(dayKey('2026-08-05T19:00:00.000Z', 'Asia/Kolkata')).toBe('2026-08-06');
+    expect(dayKey('2026-08-05T19:00:00.000Z', 'UTC')).toBe('2026-08-05');
   });
 });

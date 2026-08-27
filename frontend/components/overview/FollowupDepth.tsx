@@ -31,7 +31,7 @@ export function FollowupDepth({ filters }: { filters: DashboardFilterState }) {
               <div className="flex flex-col gap-2.5">
                 {entries.map(([attempt, count]) => (
                   <div key={attempt} className="flex items-center gap-3">
-                    <span className="w-20 shrink-0 text-xs text-muted-foreground">Attempt {attempt}</span>
+                    <span className="w-20 shrink-0 text-xs text-muted-foreground">Attempt {attempt}{attempt === '5' ? '+' : ''}</span>
                     <div className="relative h-5 flex-1 rounded-sm bg-chip">
                       <div className="h-5 rounded-sm bg-primary" style={{ width: `${Math.max(2, (count / max) * 100)}%` }} />
                     </div>
