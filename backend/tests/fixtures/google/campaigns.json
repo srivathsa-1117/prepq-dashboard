@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "campaign": {
+        "id": "19000001",
+        "name": "CPA - Search - Exact",
+        "status": "ENABLED",
+        "advertisingChannelType": "SEARCH",
+        "startDate": "2026-06-01"
+      },
+      "campaignBudget": { "amountMicros": "50000000" }
+    },
+    {
+      "campaign": {
+        "id": "19000002",
+        "name": "EA - Performance Max",
+        "status": "ENABLED",
+        "advertisingChannelType": "PERFORMANCE_MAX",
+        "startDate": "2026-05-01"
+      },
+      "campaignBudget": { "amountMicros": "30000000" }
+    }
+  ]
+}

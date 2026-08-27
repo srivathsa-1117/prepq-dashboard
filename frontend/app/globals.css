@@ -1,0 +1,175 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Palette translated 1:1 from prepq-dashboard-v2.html's :root custom
+ * properties - do not "improve" these colors without checking that file.
+ * They're accessibility-checked (colorblind-safe sequential/categorical
+ * ordering) for this specific dashboard's charts. See ARCHITECTURE.md.
+ */
+:root {
+  color-scheme: light;
+  --background: #f7f8f9;
+  --surface: #fcfcfb;
+  --foreground: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: #e1e0d9;
+  --input: #e1e0d9;
+  --focus-ring: #2a78d6;
+  --primary: #2a78d6;
+  --primary-foreground: #ffffff;
+  --secondary: #eef1f4;
+  --secondary-foreground: #0b0b0b;
+
+  --cpa: #2a78d6;
+  --ea: #008300;
+  --meta: #eb6834;
+  --google: #4a3aa7;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+
+  --f1: #86b6ef;
+  --f2: #6da7ec;
+  --f3: #3987e5;
+  --f4: #2a78d6;
+  --f5: #1c5cab;
+  --f6: #104281;
+
+  --seq1: #cde2fb;
+  --seq2: #9ec5f4;
+  --seq3: #6da7ec;
+  --seq4: #3987e5;
+  --seq5: #2a78d6;
+  --seq6: #1c5cab;
+  --seq7: #104281;
+
+  --chip: #eef1f4;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --background: #0d0d0d;
+    --surface: #1a1a19;
+    --foreground: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: #2c2c2a;
+    --input: #2c2c2a;
+    --focus-ring: #3987e5;
+    --primary: #3987e5;
+    --primary-foreground: #0b0b0b;
+    --secondary: #242423;
+    --secondary-foreground: #ffffff;
+
+    --cpa: #3987e5;
+    --ea: #008300;
+    --meta: #d95926;
+    --google: #9085e9;
+    --good: #0ca30c;
+    --good-text: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+
+    --f1: #6da7ec;
+    --f2: #5598e7;
+    --f3: #3987e5;
+    --f4: #256abf;
+    --f5: #1c5cab;
+    --f6: #184f95;
+
+    --seq1: #0d366b;
+    --seq2: #104281;
+    --seq3: #184f95;
+    --seq4: #1c5cab;
+    --seq5: #256abf;
+    --seq6: #3987e5;
+    --seq7: #6da7ec;
+
+    --chip: #242423;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --background: #0d0d0d;
+  --surface: #1a1a19;
+  --foreground: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --baseline: #383835;
+  --border: #2c2c2a;
+  --input: #2c2c2a;
+  --focus-ring: #3987e5;
+  --primary: #3987e5;
+  --primary-foreground: #0b0b0b;
+  --secondary: #242423;
+  --secondary-foreground: #ffffff;
+
+  --cpa: #3987e5;
+  --ea: #008300;
+  --meta: #d95926;
+  --google: #9085e9;
+  --good: #0ca30c;
+  --good-text: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+
+  --f1: #6da7ec;
+  --f2: #5598e7;
+  --f3: #3987e5;
+  --f4: #256abf;
+  --f5: #1c5cab;
+  --f6: #184f95;
+
+  --seq1: #0d366b;
+  --seq2: #104281;
+  --seq3: #184f95;
+  --seq4: #1c5cab;
+  --seq5: #256abf;
+  --seq6: #3987e5;
+  --seq7: #6da7ec;
+
+  --chip: #242423;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Tabular numbers for every metric value - keeps columns of numbers aligned, matches the reference dashboard's `font-variant-numeric: tabular-nums` usage throughout. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--baseline);
+  border-radius: 99px;
+}

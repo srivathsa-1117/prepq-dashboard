@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "id": "120210000000001",
+      "name": "CPA - Lead Gen - Prospecting",
+      "objective": "OUTCOME_LEADS",
+      "status": "ACTIVE",
+      "daily_budget": "5000",
+      "start_time": "2026-06-01T00:00:00+0000",
+      "updated_time": "2026-08-01T10:00:00+0000"
+    },
+    {
+      "id": "120210000000002",
+      "name": "EA - Lead Gen - Retargeting",
+      "objective": "OUTCOME_LEADS",
+      "status": "PAUSED",
+      "daily_budget": "2000",
+      "start_time": "2026-05-15T00:00:00+0000",
+      "updated_time": "2026-07-20T10:00:00+0000"
+    }
+  ],
+  "paging": {
+    "cursors": { "before": "BEFORE_CURSOR", "after": "AFTER_CURSOR_1" }
+  }
+}

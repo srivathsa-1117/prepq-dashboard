@@ -1,0 +1,32 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: prepq-analytics-backend:latest
+    container_name: prepq-analytics-api
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      HOST: 0.0.0.0
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+# NOTE: Supabase Postgres is a managed service, not a container here - this
+# compose file only runs the Fastify API. Trigger.dev scheduled sync jobs run
+# on Trigger.dev's own infrastructure (`npx trigger.dev@latest deploy`), not
+# in this compose file either - see DEPLOYMENT.md.

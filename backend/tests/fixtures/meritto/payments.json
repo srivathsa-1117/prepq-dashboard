@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "payment_id": "PAY-9001",
+      "lead_id": "MER-1001",
+      "amount": 75000,
+      "currency": "INR",
+      "paid_at": "2026-08-15T05:00:00.000Z",
+      "status": "success"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 100,
+  "has_more": false
+}

@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "lead_id": "MER-1001",
+      "activity_code": "9002",
+      "activity_performed": "Missed Call - Outbound to 9000000001",
+      "created_on": 1786336800
+    },
+    {
+      "lead_id": "MER-1001",
+      "activity_code": "9001",
+      "activity_performed": "Outbound Call Initiated to 9000000001",
+      "created_on": 1786353000
+    },
+    {
+      "lead_id": "MER-1002",
+      "activity_code": "9001",
+      "activity_performed": "Outbound Call Initiated to 9000000002",
+      "created_on": 1786345200
+    }
+  ],
+  "codes": [
+    { "code": 9001, "name": "Outbound Call Initiated", "category": "IVR" },
+    { "code": 9002, "name": "Missed Call - Outbound", "category": "IVR" }
+  ]
+}

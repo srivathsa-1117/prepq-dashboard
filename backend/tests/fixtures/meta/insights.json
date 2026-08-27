@@ -1,0 +1,30 @@
+{
+  "data": [
+    {
+      "ad_id": "6320000000001",
+      "date_start": "2026-08-10",
+      "date_stop": "2026-08-10",
+      "impressions": "12450",
+      "clicks": "312",
+      "spend": "4520.75",
+      "reach": "9800",
+      "frequency": "1.27",
+      "actions": [
+        { "action_type": "link_click", "value": "312" },
+        { "action_type": "lead", "value": "18" }
+      ]
+    },
+    {
+      "ad_id": "6320000000002",
+      "date_start": "2026-08-10",
+      "date_stop": "2026-08-10",
+      "impressions": "8100",
+      "clicks": "140",
+      "spend": "1980.00",
+      "reach": "6500",
+      "frequency": "1.10",
+      "actions": [{ "action_type": "onsite_conversion.lead_grouped", "value": "5" }]
+    }
+  ],
+  "paging": {}
+}

@@ -1,0 +1,26 @@
+{
+  "results": [
+    {
+      "adGroupAd": { "ad": { "id": "77000001" } },
+      "segments": { "date": "2026-08-10" },
+      "metrics": {
+        "impressions": "5400",
+        "clicks": "210",
+        "costMicros": "3125000000",
+        "conversions": "12",
+        "conversionsValue": "0"
+      }
+    },
+    {
+      "adGroupAd": { "ad": { "id": "77000002" } },
+      "segments": { "date": "2026-08-10" },
+      "metrics": {
+        "impressions": "3100",
+        "clicks": "95",
+        "costMicros": "1450000000",
+        "conversions": "4",
+        "conversionsValue": "0"
+      }
+    }
+  ]
+}

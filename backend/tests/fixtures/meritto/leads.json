@@ -1,0 +1,50 @@
+{
+  "data": [
+    {
+      "lead_id": "MER-1001",
+      "name": "Test Lead One",
+      "email": "leadone@example.com",
+      "mobile": "9000000001",
+      "course": "CPA",
+      "source": "Facebook Lead Ads",
+      "lead_stage": "Untouched",
+      "owner": "Anjali Rao",
+      "lead_age": "0 d",
+      "cf_ad_name": "Video - Testimonial v3",
+      "cf_ad_set_name": "Prospecting - 25-44",
+      "cf_campaign_name": "CPA - Lead Gen - Prospecting",
+      "total_outbound": 2,
+      "outbound_success": 1
+    },
+    {
+      "lead_id": "MER-1002",
+      "name": "Test Lead Two",
+      "email": "leadtwo@example.com",
+      "mobile": "9000000002",
+      "course": "EA",
+      "source": "Google Ads",
+      "lead_stage": "Not Qualified",
+      "owner": "Rahul Mehta",
+      "lead_age": "0 d",
+      "cf_ad_name": "Headline - Career Switch",
+      "cf_campaign_name": "EA - Performance Max",
+      "total_outbound": 1,
+      "outbound_success": 1
+    },
+    {
+      "lead_id": "MER-1003",
+      "name": "Test Lead Three",
+      "email": "leadthree@example.com",
+      "mobile": "9000000003",
+      "course": "CPA",
+      "source": "Facebook Lead Ads",
+      "lead_stage": "Untouched",
+      "owner": "Anjali Rao",
+      "lead_age": "1 d",
+      "cf_ad_name": "Video - Testimonial v3",
+      "cf_campaign_name": "CPA - Lead Gen - Prospecting",
+      "total_outbound": 0,
+      "outbound_success": 0
+    }
+  ]
+}
