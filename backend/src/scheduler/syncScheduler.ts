@@ -4,7 +4,13 @@ import { listAllEnabledSyncJobs, type SyncJobWithClient } from '../repositories/
 import { getIntegration } from '../repositories/integrationsRepo.js';
 import { getLatestSyncRuns, getLastSuccessfulRunOfType } from '../repositories/syncRunsRepo.js';
 import { runSyncInBackground } from '../sync/syncDispatcher.js';
-import { DEFAULT_SYNC_SCHEDULE, MERITTO_MAX_WAIT_MINUTES, MERITTO_BACKFILL_INTERVAL_DAYS } from '../config/constants.js';
+import {
+  DEFAULT_SYNC_SCHEDULE,
+  MERITTO_MAX_WAIT_MINUTES,
+  MERITTO_BACKFILL_INTERVAL_DAYS,
+  AD_PLATFORM_BACKFILL_INTERVAL_DAYS,
+  AD_PLATFORM_BACKFILL_LOOKBACK_DAYS,
+} from '../config/constants.js';
 import { isBackfillDue, isDueToday, isSameLocalDate, minutesPastScheduled, parseSimpleDailyCron } from './scheduleTime.js';
 import type { IntegrationProvider, SyncRunType } from '../types/domain.js';
 
@@ -92,6 +98,24 @@ async function resolveMerittoRunType(clientId: string, now: Date): Promise<SyncR
   return isBackfillDue(lastBackfillAt, now, MERITTO_BACKFILL_INTERVAL_DAYS) ? 'backfill' : 'scheduled';
 }
 
+/**
+ * Meta/Google's daily reconciliation only re-pulls DEFAULT_LOOKBACK_DAYS (3 days) - fine in
+ * steady state, but confirmed to freeze a day's numbers wrong forever if a sync outage lasts
+ * longer than that (see constants.ts's AD_PLATFORM_BACKFILL_INTERVAL_DAYS comment for the real
+ * incident this was found from). Once per AD_PLATFORM_BACKFILL_INTERVAL_DAYS, widens that day's
+ * pull to AD_PLATFORM_BACKFILL_LOOKBACK_DAYS instead, so any such gap self-heals within a bounded
+ * time. Unlike Meritto, these providers don't branch on runType internally - only lookbackDays
+ * changes their behavior - so 'backfill' here is purely a tracking tag for getLastSuccessfulRunOfType.
+ */
+async function resolveAdPlatformRun(clientId: string, provider: IntegrationProvider, now: Date): Promise<{ runType: SyncRunType; lookbackDays?: number }> {
+  const lastBackfill = await getLastSuccessfulRunOfType(clientId, provider, 'backfill');
+  const lastBackfillAt = lastBackfill ? new Date(lastBackfill.completedAt ?? lastBackfill.startedAt) : null;
+  if (isBackfillDue(lastBackfillAt, now, AD_PLATFORM_BACKFILL_INTERVAL_DAYS)) {
+    return { runType: 'backfill', lookbackDays: AD_PLATFORM_BACKFILL_LOOKBACK_DAYS };
+  }
+  return { runType: 'scheduled' };
+}
+
 async function evaluateJob(job: SyncJobWithClient, now: Date, clientJobs: SyncJobWithClient[]): Promise<void> {
   if (!job.enabled) return;
 
@@ -102,6 +126,7 @@ async function evaluateJob(job: SyncJobWithClient, now: Date, clientJobs: SyncJo
   if (lastRun?.status === 'running') return; // already in flight - idempotency guard against double-firing
 
   let runType: SyncRunType = 'scheduled';
+  let lookbackDays: number | undefined;
 
   if (job.provider === 'meritto') {
     const gate = await meritoGate(job, clientJobs, now, timezone, hour, minute);
@@ -113,11 +138,13 @@ async function evaluateJob(job: SyncJobWithClient, now: Date, clientJobs: SyncJo
       logger.warn({ clientId: job.clientId, waitingOn: gate.waitingOn }, 'Meritto proceeding without waiting further - max wait exceeded');
     }
     runType = await resolveMerittoRunType(job.clientId, now);
+  } else {
+    ({ runType, lookbackDays } = await resolveAdPlatformRun(job.clientId, job.provider, now));
   }
 
-  const log = logger.child({ clientId: job.clientId, provider: job.provider, runType });
+  const log = logger.child({ clientId: job.clientId, provider: job.provider, runType, lookbackDays });
   log.info('Scheduler firing sync');
-  runSyncInBackground(job.provider, { clientId: job.clientId, integrationId: job.integrationId, runType }, log);
+  runSyncInBackground(job.provider, { clientId: job.clientId, integrationId: job.integrationId, runType, lookbackDays }, log);
 }
 
 async function tick(): Promise<void> {

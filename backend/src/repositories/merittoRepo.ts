@@ -20,13 +20,24 @@ export async function upsertMerittoLeads(
 ): Promise<{ idByPlatformId: Map<string, string>; counts: UpsertCounts }> {
   if (leads.length === 0) return { idByPlatformId: new Map(), counts: { created: 0, updated: 0 } };
 
-  const { data: existing, error: existingError } = await supabaseAdmin
-    .from('leads')
-    .select('meritto_lead_id')
-    .eq('client_id', clientId)
-    .not('meritto_lead_id', 'is', null);
-  if (existingError) throw existingError;
-  const existingIds = new Set((existing ?? []).map((r) => r.meritto_lead_id));
+  // Paginated (not a single unbounded select): PostgREST silently caps an unranged select at
+  // its default row limit (1000), and every lead for this client has a meritto_lead_id set, so
+  // an unpaginated version here would have silently miscounted leads as "created" instead of
+  // "updated" past the 1000th row once this account crossed that size - see reportingRepo.ts's
+  // getEnrolledLeads for the same established pattern.
+  const PAGE_SIZE = 1000;
+  const existingIds = new Set<string>();
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from('leads')
+      .select('meritto_lead_id')
+      .eq('client_id', clientId)
+      .not('meritto_lead_id', 'is', null)
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (existingError) throw existingError;
+    for (const r of existing ?? []) existingIds.add(r.meritto_lead_id as string);
+    if (!existing || existing.length < PAGE_SIZE) break;
+  }
 
   // enrolled_at/fee_paid are deliberately NOT written here (or ever reset on re-sync): they're
   // set exactly once, out of band, by applyEnrollmentFromDisposition/applyEnrollmentFromPayments

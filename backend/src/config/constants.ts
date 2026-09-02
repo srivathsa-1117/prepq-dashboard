@@ -33,6 +33,22 @@ export const MERITTO_RECONCILIATION_LOOKBACK_DAYS = 14;
  */
 export const MERITTO_BACKFILL_INTERVAL_DAYS = 7;
 
+/**
+ * Meta/Google's daily reconciliation only re-pulls the last DEFAULT_LOOKBACK_DAYS (3) days, to
+ * absorb Meta's own delayed attribution (spend/impressions/clicks for a given day keep revising
+ * for up to ~72h, sometimes longer, after the fact). That's fine in steady state, but confirmed
+ * empirically to fail silently after any outage longer than 3 days: a real gap in this account's
+ * Meta syncs (Aug 28 - Sept 1) left one ad's Aug 28 row frozen at a partial-day snapshot - 3-5x
+ * under Meta's real numbers - because by the time syncing resumed, Aug 28 had already aged just
+ * outside the 3-day window and no later sync ever looked at it again. Same failure mode as
+ * Meritto's reconciliation gap above, same fix: a periodic wider-window pass layered on top of
+ * the fast daily one, so a day's numbers can never freeze wrong for longer than this interval.
+ */
+export const AD_PLATFORM_BACKFILL_INTERVAL_DAYS = 7;
+
+/** Lookback window used by the periodic Meta/Google backfill above - wide enough to cover any realistic outage plus Meta's own attribution-revision window, without re-pulling the account's entire history every time (unlike Meritto, these APIs need an explicit bounded date range). */
+export const AD_PLATFORM_BACKFILL_LOOKBACK_DAYS = 45;
+
 /** How long the scheduler waits for Meta+Google to finish today before running Meritto anyway (a sync with possibly-stale attribution beats no sync at all). */
 export const MERITTO_MAX_WAIT_MINUTES = 180;
 

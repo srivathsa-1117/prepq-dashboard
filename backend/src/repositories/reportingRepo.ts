@@ -424,16 +424,37 @@ export async function getCourseFees(clientId: string) {
   return data ?? [];
 }
 
+/**
+ * Every distinct `leads.source` value for this client - paginated (not a single unbounded
+ * select) because PostgREST silently caps an unranged select at its default row limit (1000).
+ * With this account alone past 3,000 leads, an unpaginated version was confirmed live to
+ * silently drop rarer sources (e.g. "national ea webhinar") from the filter dropdown entirely -
+ * not an error, just missing options, so it went unnoticed until checked directly.
+ */
+async function getDistinctSources(clientId: string): Promise<string[]> {
+  const PAGE_SIZE = 1000;
+  const sources = new Set<string>();
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('leads')
+      .select('source')
+      .eq('client_id', clientId)
+      .not('source', 'is', null)
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw error;
+    for (const row of data ?? []) sources.add(row.source as string);
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return Array.from(sources).sort();
+}
+
 /** Powers CourseFilter/SourceFilter option lists - courses are the client's canonical list, sources are distinct values actually seen on leads (never a hardcoded list, since source taxonomy is client-configured). */
 export async function getFilterOptions(clientId: string) {
-  const [coursesResult, sourcesResult] = await Promise.all([
+  const [coursesResult, sources] = await Promise.all([
     supabaseAdmin.from('courses').select('id, code, name').eq('client_id', clientId).order('name'),
-    supabaseAdmin.from('leads').select('source').eq('client_id', clientId).not('source', 'is', null),
+    getDistinctSources(clientId),
   ]);
   if (coursesResult.error) throw coursesResult.error;
-  if (sourcesResult.error) throw sourcesResult.error;
-
-  const sources = Array.from(new Set((sourcesResult.data ?? []).map((row) => row.source as string))).sort();
 
   return { courses: coursesResult.data ?? [], sources };
 }
