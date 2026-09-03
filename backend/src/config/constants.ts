@@ -17,15 +17,21 @@ export const DEFAULT_SYNC_SCHEDULE: Record<IntegrationProvider, { hour: number; 
 /** How many days back an incremental daily sync re-pulls, to absorb late-arriving/attributed conversions. */
 export const DEFAULT_LOOKBACK_DAYS = 3;
 
-/** Meritto reconciliation pulls a wider window nightly to self-heal missed updates. */
-export const MERITTO_RECONCILIATION_LOOKBACK_DAYS = 14;
+/**
+ * Meritto reconciliation pulls a wider window nightly to self-heal missed updates. Widened from
+ * 14 to 30 days after a real incident: a 24-day-old lead's disposition changed to "Enrolled" a
+ * few hours after that week's full backfill ran, then sat unreflected for a day because it was
+ * just outside the old 14-day window and the fast daily sync correctly (per its own logic) never
+ * looked at it again. 30 days covers a full month of lead age, not just two weeks.
+ */
+export const MERITTO_RECONCILIATION_LOOKBACK_DAYS = 30;
 
 /**
  * Meritto's lead-list date filter is anchored to lead creation/age, not last-modified (confirmed
  * empirically - a 94-day-old lead whose disposition changed to "Enrolled" was invisible to a
  * 90-day windowed pull but visible in an unfiltered one). That means the daily reconciliation
  * window above can NEVER pick up a status change on a lead older than it, no matter how wide it
- * is, since sales cycles for this account's courses regularly run well past 14 days. Rather than
+ * is, since sales cycles for this account's courses regularly run well past 30 days. Rather than
  * widen the daily window indefinitely (each extra 30-day chunk adds real, rate-limited API time -
  * see merittoSync.ts), the scheduler runs one full unfiltered backfill per client at this cadence,
  * layered on top of the fast daily windowed reconciliation: recent leads stay fresh daily, and no
