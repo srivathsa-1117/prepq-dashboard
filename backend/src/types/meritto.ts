@@ -40,7 +40,11 @@ export interface MerittoLead {
   lead_stage?: string;
   lead_status?: string;
   previous_lead_stage?: string;
-  owner?: string;
+  // Despite the documented type, this account's real API returns a one-element array of an
+  // opaque internal user id (e.g. "66b1416d2019436f90a9268da320ee4c") here, never a plain name -
+  // confirmed by inspecting raw_data across every lead that has one. See merittoTransform.ts's
+  // extractOwnerRef.
+  owner?: string | string[];
   lead_age?: string; // e.g. "0 d", "12 d"
   cf_ad_name?: string;
   cf_ad_set_name?: string;
@@ -93,7 +97,8 @@ export interface NormalizedMerittoLead {
   adSet: string | null;
   creative: string | null;
   attributionRaw: Record<string, unknown>;
-  owner: string | null;
+  /** The raw Meritto owner id (see MerittoLead.owner) - resolved to a real name via meritto_owner_names in merittoSync.ts, since Meritto never sends the name itself. */
+  ownerRef: string | null;
   sourceDisposition: string | null;
   dqReason: string | null;
   demoBookedAt: string | null;

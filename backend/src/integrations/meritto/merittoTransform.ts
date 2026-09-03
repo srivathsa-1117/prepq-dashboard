@@ -8,6 +8,19 @@ import type {
   NormalizedMerittoPayment,
 } from '../../types/meritto.js';
 
+/**
+ * Meritto's real API sends `owner` as a one-element array of an opaque internal user id, not the
+ * plain string the documented field type implies (confirmed live - every lead in this account has
+ * this shape). Handles a bare string too in case a future account/endpoint variant sends one
+ * directly, and anything else (missing, empty array, wrong type) resolves to null rather than
+ * guessing.
+ */
+export function extractOwnerRef(owner: string | string[] | undefined): string | null {
+  if (Array.isArray(owner)) return typeof owner[0] === 'string' && owner[0].length > 0 ? owner[0] : null;
+  if (typeof owner === 'string' && owner.length > 0) return owner;
+  return null;
+}
+
 function normalizeSourceLabel(rawSource: string | undefined): string | null {
   if (!rawSource) return null;
   const lower = rawSource.toLowerCase();
@@ -58,11 +71,7 @@ export function transformLead(raw: MerittoLead): NormalizedMerittoLead {
     adSet: raw.cf_ad_set_name ?? null,
     creative: raw.cf_ad_name ?? null,
     attributionRaw,
-    // typeof-guarded, not just `raw.owner || null`: live-tested, this account has at least
-    // one lead where owner comes back as a non-string value despite the documented field
-    // being free text - downstream code (salesRepsRepo, disposition resolution) assumes a
-    // real string and calls .trim() on it.
-    owner: typeof raw.owner === 'string' && raw.owner.length > 0 ? raw.owner : null,
+    ownerRef: extractOwnerRef(raw.owner),
     sourceDisposition: raw.lead_stage ?? raw.lead_status ?? null,
     dqReason: null, // this account has no distinct DQ-reason field; disposition rules can still set one via lead_status_rules
     demoBookedAt: null, // no demo-tracking field in this account's schema (see getMetaData) - stays null until confirmed otherwise

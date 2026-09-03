@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { transformActivity, transformLead, summarizeCallActivity, buildCallCodeIndex } from '../../../src/integrations/meritto/merittoTransform.js';
+import { transformActivity, transformLead, summarizeCallActivity, buildCallCodeIndex, extractOwnerRef } from '../../../src/integrations/meritto/merittoTransform.js';
 import { resolveDispositionStatus } from '../../../src/services/merittoDispositionMap.js';
 import leadsFixture from '../../fixtures/meritto/leads.json' with { type: 'json' };
 import activitiesFixture from '../../fixtures/meritto/activities.json' with { type: 'json' };
@@ -14,6 +14,27 @@ describe('meritto transform', () => {
 
     const google = transformLead(leadsFixture.data[1] as MerittoLead);
     expect(google.source).toBe('google');
+  });
+
+  describe('extractOwnerRef', () => {
+    it('extracts the id from the real-world one-element array shape Meritto actually sends', () => {
+      expect(extractOwnerRef(['66b1416d2019436f90a9268da320ee4c'])).toBe('66b1416d2019436f90a9268da320ee4c');
+    });
+
+    it('falls back to a bare string if a future account/endpoint variant sends one directly', () => {
+      expect(extractOwnerRef('66b1416d2019436f90a9268da320ee4c')).toBe('66b1416d2019436f90a9268da320ee4c');
+    });
+
+    it('resolves to null for missing, empty-array, or empty-string owner values rather than guessing', () => {
+      expect(extractOwnerRef(undefined)).toBeNull();
+      expect(extractOwnerRef([])).toBeNull();
+      expect(extractOwnerRef('')).toBeNull();
+    });
+  });
+
+  it('normalizes a lead\'s owner to the raw Meritto id (ownerRef), not a name - Meritto never sends a name here', () => {
+    const lead = transformLead({ ...(leadsFixture.data[0] as MerittoLead), owner: ['66b1416d2019436f90a9268da320ee4c'] });
+    expect(lead.ownerRef).toBe('66b1416d2019436f90a9268da320ee4c');
   });
 
   it('preserves attribution fields verbatim in attributionRaw without inventing missing ones', () => {

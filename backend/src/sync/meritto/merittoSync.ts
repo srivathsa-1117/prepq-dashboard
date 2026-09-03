@@ -9,9 +9,16 @@ import {
 } from '../../repositories/merittoRepo.js';
 import { listLeadStatusRules } from '../../repositories/leadStatusRulesRepo.js';
 import { loadAttributionMaps, resolveAttribution } from '../../repositories/attributionLookupRepo.js';
-import { getOrCreateSalesRepsByName } from '../../repositories/salesRepsRepo.js';
+import { getOrCreateSalesRepsByName, loadMerittoOwnerNames } from '../../repositories/salesRepsRepo.js';
 import { MerittoClient, type MerittoCredentials } from '../../integrations/meritto/merittoClient.js';
-import { transformActivity, transformLead, transformPayment, summarizeCallActivity, buildCallCodeIndex } from '../../integrations/meritto/merittoTransform.js';
+import {
+  transformActivity,
+  transformLead,
+  transformPayment,
+  summarizeCallActivity,
+  buildCallCodeIndex,
+  extractOwnerRef,
+} from '../../integrations/meritto/merittoTransform.js';
 import { resolveDispositionStatus } from '../../services/merittoDispositionMap.js';
 import { runTrackedSync } from '../syncRunTracker.js';
 import { MERITTO_RECONCILIATION_LOOKBACK_DAYS } from '../../config/constants.js';
@@ -36,9 +43,10 @@ export async function syncMerittoForClient(params: SyncJobParams) {
       }
 
       const client = new MerittoClient(stored.credentials);
-      const [rules, attributionMaps] = await Promise.all([
+      const [rules, attributionMaps, ownerNameByRef] = await Promise.all([
         listLeadStatusRules(params.clientId),
         loadAttributionMaps(params.clientId),
+        loadMerittoOwnerNames(params.clientId),
       ]);
 
       // runType 'backfill' pulls full history (no date filter); 'scheduled'/'manual' pull a
@@ -87,12 +95,14 @@ export async function syncMerittoForClient(params: SyncJobParams) {
       counters.addFetched(activityFetchCount);
       logger.info({ clientId: params.clientId, count: activityFetchCount }, 'Meritto activities fetched');
 
-      // Resolve owner names -> sales_reps.id up front (batch get-or-create),
-      // so the per-lead loop below is pure in-memory mapping.
-      // typeof check, not just truthiness: live-tested, this account has at least one lead
-      // whose owner field isn't a string (getOrCreateSalesRepsByName expects string[] and
-      // calls .trim() on each - a truthy non-string value slipping through crashed the sync).
-      const ownerNames = allRawLeads.map((l) => l.owner).filter((n): n is string => typeof n === 'string' && n.length > 0);
+      // Resolve owner ids -> real names (meritto_owner_names) -> sales_reps.id up front (batch
+      // get-or-create), so the per-lead loop below is pure in-memory mapping. An owner id with no
+      // matching row in meritto_owner_names resolves to no name here - see loadMerittoOwnerNames -
+      // that lead's ownerId just stays unset rather than a sales rep getting invented from a raw id.
+      const ownerNames = allRawLeads
+        .map((l) => extractOwnerRef(l.owner))
+        .map((ref) => (ref ? ownerNameByRef.get(ref) : undefined))
+        .filter((n): n is string => typeof n === 'string' && n.length > 0);
       const salesRepIdByName = await getOrCreateSalesRepsByName(params.clientId, ownerNames);
 
       // Collected alongside leadInputs below so the enrollment-from-disposition pass (further
@@ -129,7 +139,8 @@ export async function syncMerittoForClient(params: SyncJobParams) {
           creative: normalized.creative,
         });
 
-        const ownerId = normalized.owner ? (salesRepIdByName.get(normalized.owner.trim().toLowerCase()) ?? null) : null;
+        const ownerName = normalized.ownerRef ? (ownerNameByRef.get(normalized.ownerRef) ?? null) : null;
+        const ownerId = ownerName ? (salesRepIdByName.get(ownerName.trim().toLowerCase()) ?? null) : null;
 
         if (normalized.sourceDisposition === 'Enrolled') enrolledMerittoLeadIds.push(rawLead.lead_id);
 
