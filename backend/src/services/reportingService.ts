@@ -14,6 +14,8 @@ import {
   getEnrolledLeads,
   updateLeadFeePaid,
   updateLeadCourse,
+  getLeadDetail,
+  getLeadActivities,
   type TargetInput,
   getCourseFees,
   getCampaignDailyTrend,
@@ -181,9 +183,36 @@ export async function getOverview(req: ResolvedRequest) {
         }
       : null;
 
+  // Targets by course (their feedback #6: "Segregate targets by course"). monthLeads is already
+  // unscoped when no course filter is active - only issue the extra query when a course filter
+  // is currently narrowing monthLeads, so per-course actuals aren't limited to that one course.
+  const allCourseMonthLeads = req.filters.courseId
+    ? await getLeadsCreatedInRange(req.clientId, pacing.monthStart, pacing.today, { ...req.filters, courseId: undefined })
+    : monthLeads;
+  const courses = await getCourseFees(req.clientId);
+  const courseNameMap = new Map(courses.map((c) => [c.id, c.name]));
+  const leadsByCourse = new Map<string, LeadRow[]>();
+  for (const lead of allCourseMonthLeads) {
+    if (!lead.course_id) continue;
+    if (!leadsByCourse.has(lead.course_id)) leadsByCourse.set(lead.course_id, []);
+    leadsByCourse.get(lead.course_id)!.push(lead);
+  }
+  const targetsByCourse = targets.map((t) => {
+    const courseLeads = leadsByCourse.get(t.course_id) ?? [];
+    return {
+      courseId: t.course_id,
+      courseName: courseNameMap.get(t.course_id) ?? 'Unknown',
+      leads: { target: t.lead_target, actual: courseLeads.length },
+      qualified: { target: t.qualified_target, actual: courseLeads.filter((l) => l.status === 'qualified').length },
+      enrolled: { target: t.enrollment_target, actual: calc.countEnrolled(courseLeads) },
+      revenue: { target: t.revenue_target, actual: sumEnrolledRevenue(courseLeads, feeMap) },
+    };
+  });
+
   return {
     range: req.range,
     leads: calc.countLeads(leads),
+    qualified: qualifiedCount,
     qualifiedRate: calc.qualifiedRate(leads),
     junkRate: calc.junkRate(leads),
     enrolled: enrolledCount,
@@ -208,6 +237,7 @@ export async function getOverview(req: ResolvedRequest) {
           })
         : null,
     monthlyTargets,
+    targetsByCourse,
   };
 }
 
@@ -243,6 +273,14 @@ export async function setLeadRevenue(clientId: string, leadId: string, feePaid: 
 
 export async function setLeadCourse(clientId: string, leadId: string, courseId: string): Promise<void> {
   await updateLeadCourse(clientId, leadId, courseId);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/dashboard/leads/:leadId/timeline
+// ---------------------------------------------------------------------------
+export async function getLeadTimeline(clientId: string, leadId: string) {
+  const [lead, activities] = await Promise.all([getLeadDetail(clientId, leadId), getLeadActivities(clientId, leadId)]);
+  return { lead, activities };
 }
 
 // ---------------------------------------------------------------------------
@@ -501,7 +539,14 @@ export async function getCampaignDetail(req: ResolvedRequest, campaignId: string
   // The campaign's own platform isn't known up front - fn_campaign_performance_range's
   // p_campaign_id filter works regardless of platform, so pull the summary row
   // first to learn it, then use it to scope the rest of the drilldown queries.
-  const summaryRows = await getCampaignPerformanceRepo(req.clientId, req.range.from, req.range.to, { campaignId });
+  // Course/platform filters passed through too (previously dropped here) - without them, the
+  // Campaigns table row (course-filtered) and this same campaign's drawer (always unfiltered)
+  // showed different spend/leads/revenue whenever a Course filter was active.
+  const summaryRows = await getCampaignPerformanceRepo(req.clientId, req.range.from, req.range.to, {
+    campaignId,
+    platform: spendFilterFor(req).platform,
+    courseId: req.filters.courseId,
+  });
   const summary = summaryRows[0];
   if (!summary) throw new NotFoundError('Campaign not found for this client/date range');
 
@@ -598,8 +643,14 @@ export async function getCreativeDetail(req: ResolvedRequest, creativeId: string
   const info = await getCreativeLibraryInfo(req.clientId, creativeId);
   if (!info) throw new NotFoundError('Creative not found for this client');
 
+  // Course/platform filters passed through too (previously an empty {} here, always unfiltered) -
+  // same mismatch as getCampaignDetail: the Creatives grid (course-filtered) and this same
+  // creative's drawer showed different spend/leads/revenue whenever a Course filter was active.
   const [performanceRows, trend, fatigue] = await Promise.all([
-    getCreativePerformanceRepo(req.clientId, req.range.from, req.range.to, {}),
+    getCreativePerformanceRepo(req.clientId, req.range.from, req.range.to, {
+      platform: spendFilterFor(req).platform,
+      courseId: req.filters.courseId,
+    }),
     getCreativeDailyTrend(req.clientId, creativeId, req.range.from, req.range.to),
     getCreativeFatigueDetail(req.clientId, creativeId, req.range.to),
   ]);

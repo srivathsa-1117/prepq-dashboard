@@ -38,6 +38,24 @@ export function SpeedToLead({ filters }: { filters: DashboardFilterState }) {
                   </div>
                 ))}
               </div>
+              {(data.speedToLead.neverCalled > 0 || data.speedToLead.notTimeable > 0) && (
+                <div className="mt-1 flex flex-col gap-1.5 border-t border-border pt-2">
+                  {data.speedToLead.neverCalled > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Never called</span>
+                      <span className="tabular-nums text-foreground">{formatNumber(data.speedToLead.neverCalled)} leads</span>
+                    </div>
+                  )}
+                  {data.speedToLead.notTimeable > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground" title="Called, but Meritto only gives us the lead's creation day (not the exact time), so we can't tell how many hours passed before the first call.">
+                        Called, timing unclear
+                      </span>
+                      <span className="tabular-nums text-foreground">{formatNumber(data.speedToLead.notTimeable)} leads</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </AsyncSection>

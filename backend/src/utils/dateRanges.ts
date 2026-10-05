@@ -12,6 +12,38 @@ export function todayInTimezone(timezone: string, now: Date = new Date()): strin
   return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
 
+/**
+ * The real UTC instant of midnight on `dateStr` (YYYY-MM-DD) as experienced in `timezone` - DST-safe
+ * (re-derives the zone's offset from the actual instant rather than assuming a fixed one). Needed
+ * because "midnight" isn't the same UTC instant everywhere: midnight IST (UTC+5:30) is 18:30 UTC
+ * the *previous* calendar day, not `${dateStr}T00:00:00Z`. Used by
+ * merittoTransform.ts::deriveCreatedAtFromLeadAge - this account's Meritto integration only gives
+ * a whole-day lead_age (no real per-lead timestamp), and anchoring that to UTC midnight instead of
+ * the client's own IST midnight was making every lead's derived created_at land up to ~5.5 hours
+ * later than its real registration - live-confirmed against lead_activities' "registered" events,
+ * which are real-timestamped and consistently landed in the evening UTC hours of the *previous*
+ * calendar day relative to the UTC-anchored derivation.
+ */
+export function zonedMidnightToUtcIso(dateStr: string, timezone: string): string {
+  const naiveUtcMs = new Date(`${dateStr}T00:00:00.000Z`).getTime();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(naiveUtcMs));
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value])) as Record<string, string>;
+  // Some locales render midnight as "24:00" rather than "00:00" for hour12: false - normalize.
+  const hour = Number(map.hour) === 24 ? 0 : Number(map.hour);
+  const zonedWallClockAsUtcMs = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), hour, Number(map.minute), Number(map.second));
+  const offsetMs = zonedWallClockAsUtcMs - naiveUtcMs;
+  return new Date(naiveUtcMs - offsetMs).toISOString();
+}
+
 function parseISODate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(Date.UTC(y!, m! - 1, d!));

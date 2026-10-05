@@ -20,6 +20,7 @@ import {
   listEnrolledLeads,
   setLeadRevenue,
   setLeadCourse,
+  getLeadTimeline,
 } from '../../services/reportingService.js';
 
 const monthQuerySchema = z.object({
@@ -190,4 +191,14 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       reply.status(204).send();
     },
   );
+
+  // Lead detail/timeline: header info + chronological activity log, sourced from lead_activities
+  // (Meritto's real per-event log, already synced but previously never read back). Answers
+  // "is the issue only with the CRM timeline" (their feedback #5) with our own controlled sort
+  // order rather than relying on Meritto's own UI presentation.
+  app.get('/api/dashboard/leads/:leadId/timeline', { preHandler: commonPreHandler }, async (request) => {
+    const q = clientIdQuerySchema.parse(request.query);
+    const { leadId } = request.params as { leadId: string };
+    return getLeadTimeline(q.client_id, uuidSchema.parse(leadId));
+  });
 }

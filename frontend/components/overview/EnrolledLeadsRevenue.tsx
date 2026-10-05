@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
@@ -10,9 +12,13 @@ import { Loader2 } from 'lucide-react';
 import { AsyncSection } from '@/components/common/AsyncSection';
 import { useEnrolledLeads, useFilterOptions, useSetLeadRevenue, useSetLeadCourse } from '@/lib/hooks/useDashboardData';
 import { useOrgClient } from '@/lib/providers/OrgClientProvider';
+import type { EnrolledLead } from '@/lib/types/api';
 import { formatCurrencyCompact, formatDateLabel } from '@/lib/utils/format';
+import { cn } from '@/lib/utils/cn';
 
 const EDITOR_ROLES = new Set(['manager', 'admin', 'owner']);
+
+type SortKey = 'name' | 'course' | 'enrolledAt' | 'feePaid';
 
 function RevenueCell({ leadId, feePaid, editable }: { leadId: string; feePaid: number | null; editable: boolean }) {
   const { selectedClientId } = useOrgClient();
@@ -138,8 +144,39 @@ export function EnrolledLeadsRevenue() {
   const query = useEnrolledLeads(selectedClientId);
   const coursesQuery = useFilterOptions(selectedClientId);
   const canEdit = !!selectedRole && EDITOR_ROLES.has(selectedRole);
+  const [sortKey, setSortKey] = useState<SortKey>('enrolledAt');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const courses = coursesQuery.data?.courses ?? [];
+  const courseName = (courseId: string | null) => (courseId ? (courses.find((c) => c.id === courseId)?.name ?? courseId) : '');
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  }
+
+  function sortValue(lead: EnrolledLead): string | number {
+    switch (sortKey) {
+      case 'name':
+        return (lead.name ?? '').toLowerCase();
+      case 'course':
+        return courseName(lead.courseId).toLowerCase();
+      case 'enrolledAt':
+        return lead.enrolledAt;
+      case 'feePaid':
+        return lead.feePaid ?? -1;
+    }
+  }
+
+  const COLUMNS: Array<{ key: SortKey; label: string; align?: 'right' }> = [
+    { key: 'name', label: 'Lead' },
+    { key: 'course', label: 'Course' },
+    { key: 'enrolledAt', label: 'Enrolled' },
+    { key: 'feePaid', label: 'Revenue', align: 'right' },
+  ];
 
   return (
     <Card>
@@ -155,32 +192,49 @@ export function EnrolledLeadsRevenue() {
           isEmpty={(d) => d.leads.length === 0}
           emptyMessage="No enrolled leads yet."
         >
-          {(data) => (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Lead</TableHead>
-                  <TableHead>Course</TableHead>
-                  <TableHead>Enrolled</TableHead>
-                  <TableHead className="text-right">Revenue</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.leads.map((lead) => (
-                  <TableRow key={lead.id}>
-                    <TableCell className="font-medium text-foreground">{lead.name ?? '(no name)'}</TableCell>
-                    <TableCell>
-                      <CourseCell leadId={lead.id} courseId={lead.courseId} courses={courses} editable={canEdit} />
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{formatDateLabel(lead.enrolledAt)}</TableCell>
-                    <TableCell className="text-right">
-                      <RevenueCell leadId={lead.id} feePaid={lead.feePaid} editable={canEdit} />
-                    </TableCell>
+          {(data) => {
+            const sorted = [...data.leads].sort((a, b) => {
+              const av = sortValue(a);
+              const bv = sortValue(b);
+              if (av < bv) return sortDir === 'asc' ? -1 : 1;
+              if (av > bv) return sortDir === 'asc' ? 1 : -1;
+              return 0;
+            });
+            return (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {COLUMNS.map((col) => (
+                      <TableHead key={col.key} className={cn(col.align === 'right' && 'text-right')}>
+                        <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort(col.key)}>
+                          {col.label}
+                          {sortKey === col.key ? sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" /> : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                        </button>
+                      </TableHead>
+                    ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((lead) => (
+                    <TableRow key={lead.id}>
+                      <TableCell className="font-medium text-foreground">
+                        <Link href={`/leads/${lead.id}`} className="underline-offset-2 hover:underline">
+                          {lead.name ?? '(no name)'}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <CourseCell leadId={lead.id} courseId={lead.courseId} courses={courses} editable={canEdit} />
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{formatDateLabel(lead.enrolledAt)}</TableCell>
+                      <TableCell className="text-right">
+                        <RevenueCell leadId={lead.id} feePaid={lead.feePaid} editable={canEdit} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            );
+          }}
         </AsyncSection>
       </CardContent>
     </Card>

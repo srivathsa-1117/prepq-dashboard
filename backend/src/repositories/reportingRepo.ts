@@ -254,6 +254,74 @@ export async function getSpendInRange(
 // see supabase migration backend_date_ranged_reporting_functions)
 // ---------------------------------------------------------------------------
 
+interface CampaignPerformanceRow {
+  platform: string;
+  campaign_id: string;
+  campaign_name: string | null;
+  status: string | null;
+  course_code: string | null;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  leads: number;
+  qualified: number;
+  enrolled: number;
+  revenue: number;
+}
+
+/**
+ * fn_campaign_performance_range splits a single campaign into one row per distinct daily status
+ * it held during the date range (e.g. ACTIVE for the first half, PAUSED for the second) - live
+ * confirmed: spend/impressions/clicks come from a day-level metrics join and ARE genuinely split
+ * correctly per status-row, but leads/qualified/enrolled/revenue come from a separate
+ * status-less leads subquery and are the SAME full-period total duplicated onto every split row
+ * (not partial). Can't fix the SQL function itself right now (Supabase MCP access is down), so
+ * this merges the split rows back into one per campaign here: sum the genuinely-split spend
+ * fields, take the duplicated lead fields from just one row, and resolve status from the real
+ * campaigns table (the RPC's own per-row status is a stale day-level snapshot, not "is this
+ * campaign active right now").
+ */
+async function mergeSplitCampaignRows(clientId: string, rows: CampaignPerformanceRow[]): Promise<CampaignPerformanceRow[]> {
+  const merged = new Map<string, CampaignPerformanceRow>();
+  for (const row of rows) {
+    const key = `${row.platform}:${row.campaign_id}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, { ...row });
+    } else {
+      existing.spend = Number(existing.spend) + Number(row.spend);
+      existing.impressions = Number(existing.impressions) + Number(row.impressions);
+      existing.clicks = Number(existing.clicks) + Number(row.clicks);
+    }
+  }
+
+  const result = [...merged.values()];
+  if (result.length === 0) return result;
+
+  const metaIds = result.filter((r) => r.platform === 'meta').map((r) => r.campaign_id);
+  const googleIds = result.filter((r) => r.platform === 'google').map((r) => r.campaign_id);
+  const [metaStatuses, googleStatuses] = await Promise.all([
+    metaIds.length > 0
+      ? supabaseAdmin.from('meta_campaigns').select('id, status').eq('client_id', clientId).in('id', metaIds)
+      : Promise.resolve({ data: [], error: null }),
+    googleIds.length > 0
+      ? supabaseAdmin.from('google_campaigns').select('id, status').eq('client_id', clientId).in('id', googleIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (metaStatuses.error) throw metaStatuses.error;
+  if (googleStatuses.error) throw googleStatuses.error;
+  const currentStatusById = new Map<string, string>();
+  for (const c of [...(metaStatuses.data ?? []), ...(googleStatuses.data ?? [])]) {
+    if (c.status) currentStatusById.set(c.id, c.status);
+  }
+
+  for (const row of result) {
+    row.status = currentStatusById.get(row.campaign_id) ?? row.status;
+  }
+
+  return result;
+}
+
 export async function getCampaignPerformance(
   clientId: string,
   from: string,
@@ -269,7 +337,103 @@ export async function getCampaignPerformance(
     p_campaign_id: filters.campaignId,
   });
   if (error) throw error;
-  return data ?? [];
+  return mergeSplitCampaignRows(clientId, (data ?? []) as CampaignPerformanceRow[]);
+}
+
+const ACTIVE_STATUSES = new Set(['ACTIVE', 'ENABLED']);
+
+interface CreativePerformanceRow {
+  creative_id: string;
+  creative_name: string;
+  thumbnail_url: string | null;
+  asset_url: string | null;
+  status: string | null;
+  platform: string | null;
+  campaign_name: string | null;
+  adset_or_adgroup: string | null;
+  course_code: string | null;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  leads: number;
+  qualified: number;
+  junk: number;
+  enrolled: number;
+  revenue: number;
+}
+
+/**
+ * fn_creative_performance_range reports a creative's own ad-level status only - Meta/Google both
+ * let an individual ad stay "ACTIVE"/"ENABLED" while its parent ad set or campaign is paused
+ * (confirmed live: 139 of this account's 433 meta ads are ACTIVE with a PAUSED parent campaign
+ * and/or ad set), so the dashboard was showing creatives as live that aren't actually delivering
+ * anything. Per the client's explicit request: if anything above the ad in the hierarchy is off,
+ * the creative should not read as live. Can't fix fn_creative_performance_range itself right now
+ * (Supabase MCP access is down), so this resolves the real ad->adset/ad group->campaign chain
+ * here and overrides status with whichever level is actually blocking delivery.
+ */
+async function resolveEffectiveCreativeStatus<T extends CreativePerformanceRow>(clientId: string, rows: T[]): Promise<T[]> {
+  if (rows.length === 0) return rows;
+
+  const { data: creativeAds, error: caErr } = await supabaseAdmin
+    .from('creative_ads')
+    .select('creative_id, platform, meta_ad_id, google_ad_id')
+    .eq('client_id', clientId);
+  if (caErr) throw caErr;
+
+  const metaAdIdByCreative = new Map<string, string>();
+  const googleAdIdByCreative = new Map<string, string>();
+  for (const ca of creativeAds ?? []) {
+    if (ca.meta_ad_id) metaAdIdByCreative.set(ca.creative_id, ca.meta_ad_id);
+    if (ca.google_ad_id) googleAdIdByCreative.set(ca.creative_id, ca.google_ad_id);
+  }
+
+  const [metaAds, googleAds, metaCampaigns, metaAdsets, googleCampaigns, googleAdGroups] = await Promise.all([
+    supabaseAdmin.from('meta_ads').select('id, status, campaign_id, adset_id').eq('client_id', clientId),
+    supabaseAdmin.from('google_ads').select('id, status, campaign_id, ad_group_id').eq('client_id', clientId),
+    supabaseAdmin.from('meta_campaigns').select('id, status').eq('client_id', clientId),
+    supabaseAdmin.from('meta_adsets').select('id, status').eq('client_id', clientId),
+    supabaseAdmin.from('google_campaigns').select('id, status').eq('client_id', clientId),
+    supabaseAdmin.from('google_ad_groups').select('id, status').eq('client_id', clientId),
+  ]);
+  for (const r of [metaAds, googleAds, metaCampaigns, metaAdsets, googleCampaigns, googleAdGroups]) {
+    if (r.error) throw r.error;
+  }
+
+  const metaCampaignStatus = new Map((metaCampaigns.data ?? []).map((c) => [c.id, c.status]));
+  const metaAdsetStatus = new Map((metaAdsets.data ?? []).map((a) => [a.id, a.status]));
+  const googleCampaignStatus = new Map((googleCampaigns.data ?? []).map((c) => [c.id, c.status]));
+  const googleAdGroupStatus = new Map((googleAdGroups.data ?? []).map((g) => [g.id, g.status]));
+  const metaAdById = new Map((metaAds.data ?? []).map((a) => [a.id, a]));
+  const googleAdById = new Map((googleAds.data ?? []).map((a) => [a.id, a]));
+
+  const isActive = (status: string | null | undefined) => !!status && ACTIVE_STATUSES.has(status);
+
+  return rows.map((row) => {
+    if (row.platform === 'meta') {
+      const adId = metaAdIdByCreative.get(row.creative_id);
+      const ad = adId ? metaAdById.get(adId) : undefined;
+      if (!ad) return row;
+      const campaignStatus = ad.campaign_id ? metaCampaignStatus.get(ad.campaign_id) : undefined;
+      const adsetStatus = ad.adset_id ? metaAdsetStatus.get(ad.adset_id) : undefined;
+      // Downgrade to the RPC's own 'paused' vocabulary (not the raw ACTIVE/PAUSED/ENABLED string)
+      // so the frontend's creativeStatus.ts label/variant lookup (which only knows
+      // draft/ready/active/paused/archived) still renders correctly instead of falling through
+      // to an unrecognized raw value.
+      if (!isActive(campaignStatus) || !isActive(adsetStatus)) return { ...row, status: 'paused' };
+      return row;
+    }
+    if (row.platform === 'google') {
+      const adId = googleAdIdByCreative.get(row.creative_id);
+      const ad = adId ? googleAdById.get(adId) : undefined;
+      if (!ad) return row;
+      const campaignStatus = ad.campaign_id ? googleCampaignStatus.get(ad.campaign_id) : undefined;
+      const adGroupStatus = ad.ad_group_id ? googleAdGroupStatus.get(ad.ad_group_id) : undefined;
+      if (!isActive(campaignStatus) || !isActive(adGroupStatus)) return { ...row, status: 'paused' };
+      return row;
+    }
+    return row;
+  });
 }
 
 export async function getCreativePerformance(
@@ -286,7 +450,7 @@ export async function getCreativePerformance(
     p_course_id: filters.courseId,
   });
   if (error) throw error;
-  return data ?? [];
+  return resolveEffectiveCreativeStatus(clientId, (data ?? []) as CreativePerformanceRow[]);
 }
 
 export async function getSourcePerformance(clientId: string, from: string, to: string, courseId?: string) {
@@ -422,6 +586,96 @@ export async function getCourseFees(clientId: string) {
   const { data, error } = await supabaseAdmin.from('courses').select('id, code, name, fee').eq('client_id', clientId);
   if (error) throw error;
   return data ?? [];
+}
+
+export interface LeadDetailRow {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  status: string;
+  dqReason: string | null;
+  source: string | null;
+  courseId: string | null;
+  owner: string | null;
+  createdAt: string;
+  firstCallAt: string | null;
+  callAttempts: number;
+  connectAttempt: number | null;
+  connected: boolean;
+  demoBookedAt: string | null;
+  demoAttendedAt: string | null;
+  enrolledAt: string | null;
+  feePaid: number | null;
+}
+
+/** Scoped by client_id so a lead from another client can never be viewed even with a guessed id - same trust boundary as updateLeadFeePaid. */
+export async function getLeadDetail(clientId: string, leadId: string): Promise<LeadDetailRow> {
+  const { data, error } = await supabaseAdmin
+    .from('leads')
+    .select(
+      'id, name, email, phone, status, dq_reason, source, course_id, created_at, first_call_at, call_attempts, connect_attempt, connected, demo_booked_at, demo_attended_at, enrolled_at, fee_paid, sales_reps ( name )',
+    )
+    .eq('client_id', clientId)
+    .eq('id', leadId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new NotFoundError('Lead not found for this client');
+
+  const salesRep = Array.isArray(data.sales_reps) ? data.sales_reps[0] : data.sales_reps;
+  return {
+    id: data.id,
+    name: data.name,
+    email: data.email,
+    phone: data.phone,
+    status: data.status,
+    dqReason: data.dq_reason,
+    source: data.source,
+    courseId: data.course_id,
+    owner: salesRep?.name ?? null,
+    createdAt: data.created_at,
+    firstCallAt: data.first_call_at,
+    callAttempts: data.call_attempts,
+    connectAttempt: data.connect_attempt,
+    connected: data.connected,
+    demoBookedAt: data.demo_booked_at,
+    demoAttendedAt: data.demo_attended_at,
+    enrolledAt: data.enrolled_at,
+    feePaid: data.fee_paid,
+  };
+}
+
+export interface LeadActivityRow {
+  id: string;
+  activityType: string;
+  activityAt: string;
+  outcome: string | null;
+  notes: string | null;
+  duration: number | null;
+  owner: string | null;
+}
+
+/** Chronological (oldest first) so the timeline reads top-to-bottom in the order events actually happened, independent of however Meritto's own UI sorts them. */
+export async function getLeadActivities(clientId: string, leadId: string): Promise<LeadActivityRow[]> {
+  const { data, error } = await supabaseAdmin
+    .from('lead_activities')
+    .select('id, activity_type, activity_at, outcome, notes, duration, sales_reps ( name )')
+    .eq('client_id', clientId)
+    .eq('lead_id', leadId)
+    .order('activity_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row) => {
+    const salesRep = Array.isArray(row.sales_reps) ? row.sales_reps[0] : row.sales_reps;
+    return {
+      id: row.id,
+      activityType: row.activity_type,
+      activityAt: row.activity_at,
+      outcome: row.outcome,
+      notes: row.notes,
+      duration: row.duration,
+      owner: salesRep?.name ?? null,
+    };
+  });
 }
 
 /**

@@ -7,6 +7,7 @@ import type {
   NormalizedMerittoLead,
   NormalizedMerittoPayment,
 } from '../../types/meritto.js';
+import { todayInTimezone, zonedMidnightToUtcIso } from '../../utils/dateRanges.js';
 
 /**
  * Meritto's real API sends `owner` as a one-element array of an opaque internal user id, not the
@@ -34,22 +35,34 @@ function normalizeSourceLabel(rawSource: string | undefined): string | null {
  * No field in this account's lead schema carries a creation timestamp
  * (confirmed empirically - requested every plausible field name against a
  * real lead and none returned a value). `lead_age` ("N d") is the closest
- * usable proxy: today minus N days, at midnight UTC since there's no
- * time-of-day component. This is a real approximation, not exact - it
- * under-states precision for same-day leads (speed-to-lead buckets <1h/1-4h
- * few resolve correctly against a day-granularity created_at) until Meritto
- * exposes a real timestamp field or the account admin adds one.
+ * usable proxy: today minus N days, at midnight *in the client's own
+ * timezone* since there's no time-of-day component. Anchoring to UTC
+ * midnight instead (the original approach) was a real bug, not just
+ * imprecision: `lead_age` counts whole calendar days as Meritto's UI shows
+ * them, which is the client's own timezone (this account: Asia/Kolkata,
+ * UTC+5:30) - anchoring to UTC midnight instead made every lead's derived
+ * created_at land up to ~5.5 hours *later* than its real registration
+ * whenever that registration fell in the UTC-evening window that IST had
+ * already rolled into "tomorrow". Live-confirmed against lead_activities'
+ * real-timestamped "registered" events: of 2,237 leads with one, 1,589
+ * (71%) landed on a different UTC calendar day than this function's old
+ * UTC-anchored output, every single mismatch in the same direction (the
+ * real registration a few hours *before* the derived midnight) - exactly
+ * the IST-vs-UTC offset, not random noise. Still a real approximation
+ * (no time-of-day component within the day), just no longer synthetically
+ * shifting every lead into the wrong calendar day too.
  */
-function deriveCreatedAtFromLeadAge(leadAge: string | undefined): string {
+function deriveCreatedAtFromLeadAge(leadAge: string | undefined, timezone: string, now: Date = new Date()): string {
   const match = leadAge?.match(/(\d+)\s*d/i);
   const days = match ? Number(match[1]) : 0;
-  const date = new Date();
-  date.setUTCHours(0, 0, 0, 0);
-  date.setUTCDate(date.getUTCDate() - days);
-  return date.toISOString();
+  const todayStr = todayInTimezone(timezone, now);
+  const [y, m, d] = todayStr.split('-').map(Number);
+  const targetUtcMs = Date.UTC(y!, m! - 1, d!) - days * 86_400_000;
+  const targetDateStr = new Date(targetUtcMs).toISOString().slice(0, 10);
+  return zonedMidnightToUtcIso(targetDateStr, timezone);
 }
 
-export function transformLead(raw: MerittoLead): NormalizedMerittoLead {
+export function transformLead(raw: MerittoLead, timezone: string, now: Date = new Date()): NormalizedMerittoLead {
   const attributionRaw: Record<string, unknown> = {
     source: raw.source ?? null,
     medium: raw.medium ?? null,
@@ -61,7 +74,7 @@ export function transformLead(raw: MerittoLead): NormalizedMerittoLead {
 
   return {
     merittoLeadId: raw.lead_id,
-    createdAtSource: deriveCreatedAtFromLeadAge(raw.lead_age),
+    createdAtSource: deriveCreatedAtFromLeadAge(raw.lead_age, timezone, now),
     name: raw.name ?? null,
     email: raw.email ?? null,
     phone: raw.mobile ?? null,
@@ -123,6 +136,19 @@ export function buildCallCodeIndex(codes: MerittoActivityCode[]): Map<string, 'c
   return index;
 }
 
+/**
+ * Identifies the "Lead is Registered[...]" activity codes (category "Registration" - live
+ * confirmed this account has exactly two: "Lead is Registered and Unverified" and "Lead is
+ * Registered") - Meritto's real per-lead registration event, timestamped to the second. Used to
+ * upgrade createdAtSource from the day-granularity lead_age approximation to this real timestamp
+ * whenever it's available (see resolveCreatedAt in merittoSync.ts) - matched by category, not
+ * this account's specific numeric codes, so it generalizes to other Meritto accounts using the
+ * same taxonomy convention.
+ */
+export function buildRegistrationCodeIndex(codes: MerittoActivityCode[]): Set<string> {
+  return new Set(codes.filter((c) => c.category.toLowerCase() === 'registration').map((c) => String(c.code)));
+}
+
 export function transformActivity(raw: MerittoActivity, callCodeIndex: Map<string, 'connected' | 'missed'>): NormalizedMerittoActivity {
   const callOutcome = callCodeIndex.get(raw.activity_code);
   return {
@@ -182,8 +208,17 @@ function dispositionIndicatesConnected(disposition: string): boolean {
  * the activity log, sorted chronologically. Pure function - the primary
  * "pagination handling / transformation" unit under test (see
  * tests/unit/transform/meritto.transform.test.ts).
+ *
+ * Takes only the three fields it actually reads (not the full
+ * NormalizedMerittoActivity shape) so merittoSync.ts can feed it activity rows
+ * reconstructed from the persisted lead_activities table - not just this run's
+ * freshly-fetched window - without needing to fabricate a raw API payload for
+ * a record that was already synced days ago. See merittoSync.ts's
+ * getPersistedCallActivityHistory usage for why: recomputing this purely from
+ * the in-window fetch on every sync silently reset call_attempts back to 0
+ * for any lead whose most recent call fell outside the reconciliation window.
  */
-export function summarizeCallActivity(activities: NormalizedMerittoActivity[]): CallActivitySummary {
+export function summarizeCallActivity(activities: Array<Pick<NormalizedMerittoActivity, 'activityType' | 'activityAt' | 'disposition'>>): CallActivitySummary {
   const calls = activities
     .filter((a) => (a.activityType ? CALL_ACTIVITY_TYPES.has(a.activityType.toLowerCase()) : false))
     .sort((a, b) => new Date(a.activityAt).getTime() - new Date(b.activityAt).getTime());

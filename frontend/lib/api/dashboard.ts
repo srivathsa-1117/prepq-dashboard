@@ -8,6 +8,7 @@ import type {
   EnrolledLeadsResponse,
   FilterOptionsResponse,
   FunnelResponse,
+  LeadTimelineResponse,
   OverviewResponse,
   RevenueResponse,
   SalesResponse,
@@ -92,4 +93,8 @@ export function setLeadRevenue(clientId: string, leadId: string, feePaid: number
 
 export function setLeadCourse(clientId: string, leadId: string, courseId: string) {
   return apiFetch<void>(`/api/dashboard/leads/${leadId}/course`, { method: 'PATCH', body: { client_id: clientId, course_id: courseId } });
+}
+
+export function getLeadTimeline(clientId: string, leadId: string) {
+  return apiFetch<LeadTimelineResponse>(`/api/dashboard/leads/${leadId}/timeline`, { params: { client_id: clientId } });
 }

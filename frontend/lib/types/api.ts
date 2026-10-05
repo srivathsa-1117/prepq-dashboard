@@ -137,6 +137,7 @@ export interface FilterOptionsResponse {
 export interface OverviewResponse {
   range: DateRange;
   leads: number;
+  qualified: number;
   qualifiedRate: number;
   junkRate: number;
   enrolled: number;
@@ -163,6 +164,14 @@ export interface OverviewResponse {
     enrolled: { target: number; actual: number };
     revenue: { target: number; actual: number };
   } | null;
+  targetsByCourse: Array<{
+    courseId: string;
+    courseName: string;
+    leads: { target: number; actual: number };
+    qualified: { target: number; actual: number };
+    enrolled: { target: number; actual: number };
+    revenue: { target: number; actual: number };
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +219,46 @@ export interface EnrolledLeadsResponse {
   leads: EnrolledLead[];
 }
 
+// ---------------------------------------------------------------------------
+// Lead detail / timeline
+// ---------------------------------------------------------------------------
+
+export interface LeadDetail {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  status: LeadStatus;
+  dqReason: string | null;
+  source: string | null;
+  courseId: string | null;
+  owner: string | null;
+  createdAt: string;
+  firstCallAt: string | null;
+  callAttempts: number;
+  connectAttempt: number | null;
+  connected: boolean;
+  demoBookedAt: string | null;
+  demoAttendedAt: string | null;
+  enrolledAt: string | null;
+  feePaid: number | null;
+}
+
+export interface LeadActivity {
+  id: string;
+  activityType: string;
+  activityAt: string;
+  outcome: string | null;
+  notes: string | null;
+  duration: number | null;
+  owner: string | null;
+}
+
+export interface LeadTimelineResponse {
+  lead: LeadDetail;
+  activities: LeadActivity[];
+}
+
 export interface TrendsResponse {
   range: DateRange;
   series: Array<{
@@ -241,12 +290,14 @@ export interface SalesResponse {
   speedToLead: {
     medianHours: number | null;
     buckets: Array<{ bucket: SpeedBucket; leads: number; connected: number; connectRate: number }>;
+    neverCalled: number;
+    notTimeable: number;
   };
   uncalledAging: {
     buckets: Array<{ bucket: AgingBucket; leads: number }>;
     byOwner: Array<{ owner: string; leads: number }>;
   };
-  followUpDepth: { byAttempt: Record<string, number>; neverConnected: number };
+  followUpDepth: { byAttempt: Record<string, number>; neverConnected: number; noActivity: number };
   cohortConversion: Array<{ month: string; leads: number; enrolled: number; enrolledRate: number; maturity: CohortMaturity }>;
   arrivalHeatmap: Array<{ dayOfWeek: number; blockStartHour: number; leads: number; connected: number; connectRate: number }>;
   leadQuality: Array<{ status: LeadStatus; count: number; pctOfTotal: number }>;

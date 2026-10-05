@@ -46,6 +46,9 @@ export interface SpeedToLeadBucketResult {
 export interface SpeedToLeadResult {
   medianHours: number | null;
   buckets: SpeedToLeadBucketResult[];
+  neverCalled: number;
+  /** Called, but created_at/first_call_at's day-vs-second granularity mismatch makes the gap unmeasurable (see speedToLead's doc comment) - not dropped silently, surfaced so the bucket totals don't look like they're missing leads. */
+  notTimeable: number;
 }
 
 function bucketForHours(hours: number): (typeof SPEED_TO_LEAD_BUCKETS)[number] {
@@ -73,7 +76,10 @@ export function speedToLead(leads: LeadRow[]): SpeedToLeadResult {
   // floor, so an uncorrected negative value would land 100% of these in '<1h', falsely inflating
   // it (live-verified: ~19% of leads with a recorded first call) - they're excluded from both the
   // median and the bucket histogram entirely.
-  const called = leads.filter((l) => l.first_call_at !== null && hoursBetween(l.created_at, l.first_call_at) >= 0);
+  const everCalled = leads.filter((l) => l.first_call_at !== null);
+  const neverCalled = leads.length - everCalled.length;
+  const called = everCalled.filter((l) => hoursBetween(l.created_at, l.first_call_at!) >= 0);
+  const notTimeable = everCalled.length - called.length;
   const hoursList = called.map((l) => hoursBetween(l.created_at, l.first_call_at!));
 
   const buckets = new Map<(typeof SPEED_TO_LEAD_BUCKETS)[number], { leads: number; connected: number }>(
@@ -93,6 +99,8 @@ export function speedToLead(leads: LeadRow[]): SpeedToLeadResult {
       const entry = buckets.get(b)!;
       return { bucket: b, leads: entry.leads, connected: entry.connected, connectRate: rate(entry.connected, entry.leads) };
     }),
+    neverCalled,
+    notTimeable,
   };
 }
 
@@ -139,8 +147,16 @@ export function uncalledAging(uncalledLeads: LeadRow[], now: Date = new Date()):
 /** connect_attempt values of 5+ (real, e.g. a lead who took 7 tries) fold into a single "5" bucket, labeled "Attempt 5+" on the dashboard, rather than a fixed 1-4 range that silently dropped them - a connected lead with connect_attempt >= 5 previously matched neither the byAttempt range check nor the neverConnected branch (`!lead.connected` is false for them), vanishing from the widget's total entirely. */
 const MAX_ATTEMPT_BUCKET = 5;
 
-export function followUpDepth(leads: LeadRow[]): { byAttempt: Record<number, number>; neverConnected: number } {
+/**
+ * `noActivity` (leads with call_attempts === 0, i.e. no log at all) used to be silently dropped
+ * entirely: they matched neither the byAttempt range check nor `neverConnected` (which only
+ * counted leads that were actually called but never connected), because both live inside the
+ * `called` loop. Counted separately here instead, per the client's own request to surface
+ * no-log leads as "No Activity / No Log" rather than making them vanish from the total.
+ */
+export function followUpDepth(leads: LeadRow[]): { byAttempt: Record<number, number>; neverConnected: number; noActivity: number } {
   const called = leads.filter((l) => l.call_attempts > 0);
+  const noActivity = leads.length - called.length;
   const byAttempt: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, [MAX_ATTEMPT_BUCKET]: 0 };
   let neverConnected = 0;
 
@@ -153,7 +169,7 @@ export function followUpDepth(leads: LeadRow[]): { byAttempt: Record<number, num
     }
   }
 
-  return { byAttempt, neverConnected };
+  return { byAttempt, neverConnected, noActivity };
 }
 
 // ---------------------------------------------------------------------------

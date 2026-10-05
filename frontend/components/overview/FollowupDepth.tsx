@@ -22,11 +22,13 @@ export function FollowupDepth({ filters }: { filters: DashboardFilterState }) {
           isError={query.isError}
           data={query.data}
           onRetry={() => query.refetch()}
-          isEmpty={(d) => Object.keys(d.followUpDepth.byAttempt).length === 0 && d.followUpDepth.neverConnected === 0}
+          isEmpty={(d) =>
+            Object.keys(d.followUpDepth.byAttempt).length === 0 && d.followUpDepth.neverConnected === 0 && d.followUpDepth.noActivity === 0
+          }
         >
           {(data) => {
             const entries = Object.entries(data.followUpDepth.byAttempt).sort(([a], [b]) => Number(a) - Number(b));
-            const max = Math.max(...entries.map(([, v]) => v), data.followUpDepth.neverConnected, 1);
+            const max = Math.max(...entries.map(([, v]) => v), data.followUpDepth.neverConnected, data.followUpDepth.noActivity, 1);
             return (
               <div className="flex flex-col gap-2.5">
                 {entries.map(([attempt, count]) => (
@@ -48,6 +50,18 @@ export function FollowupDepth({ filters }: { filters: DashboardFilterState }) {
                   </div>
                   <span className="w-10 shrink-0 text-right text-xs font-medium tabular-nums text-foreground">
                     {formatNumber(data.followUpDepth.neverConnected)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="w-20 shrink-0 text-xs text-muted-foreground">No Activity / No Log</span>
+                  <div className="relative h-5 flex-1 rounded-sm bg-chip">
+                    <div
+                      className="h-5 rounded-sm bg-baseline"
+                      style={{ width: `${Math.max(2, (data.followUpDepth.noActivity / max) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="w-10 shrink-0 text-right text-xs font-medium tabular-nums text-foreground">
+                    {formatNumber(data.followUpDepth.noActivity)}
                   </span>
                 </div>
               </div>

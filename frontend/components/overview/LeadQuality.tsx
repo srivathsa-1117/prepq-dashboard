@@ -13,7 +13,7 @@ const STATUS_LABEL: Record<string, string> = {
   not_qualified: 'Not qualified',
   not_reachable: 'Not reachable',
   junk: 'Junk',
-  uncalled: 'Uncalled',
+  uncalled: 'No Activity / No Log',
 };
 
 const STATUS_COLOR: Record<string, string> = {

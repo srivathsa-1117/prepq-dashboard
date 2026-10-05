@@ -138,6 +138,14 @@ export function useEnrolledLeads(clientId: string | null) {
   });
 }
 
+export function useLeadTimeline(clientId: string | null, leadId: string | null) {
+  return useQuery({
+    queryKey: ['leadTimeline', clientId, leadId],
+    queryFn: () => dashboardApi.getLeadTimeline(clientId!, leadId!),
+    enabled: enabled(clientId) && !!leadId,
+  });
+}
+
 export function useSetLeadRevenue(clientId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({

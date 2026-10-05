@@ -1,18 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import { transformActivity, transformLead, summarizeCallActivity, buildCallCodeIndex, extractOwnerRef } from '../../../src/integrations/meritto/merittoTransform.js';
+import {
+  transformActivity,
+  transformLead,
+  summarizeCallActivity,
+  buildCallCodeIndex,
+  buildRegistrationCodeIndex,
+  extractOwnerRef,
+} from '../../../src/integrations/meritto/merittoTransform.js';
 import { resolveDispositionStatus } from '../../../src/services/merittoDispositionMap.js';
 import leadsFixture from '../../fixtures/meritto/leads.json' with { type: 'json' };
 import activitiesFixture from '../../fixtures/meritto/activities.json' with { type: 'json' };
 import type { MerittoActivity, MerittoActivityCode, MerittoLead } from '../../../src/types/meritto.js';
 
+const TEST_TIMEZONE = 'Asia/Kolkata';
+
 describe('meritto transform', () => {
   it('normalizes lead_source into the dashboard source vocabulary', () => {
-    const fb = transformLead(leadsFixture.data[0] as MerittoLead);
+    const fb = transformLead(leadsFixture.data[0] as MerittoLead, TEST_TIMEZONE);
     expect(fb.source).toBe('meta');
     expect(fb.campaign).toBe('CPA - Lead Gen - Prospecting');
     expect(fb.creative).toBe('Video - Testimonial v3');
 
-    const google = transformLead(leadsFixture.data[1] as MerittoLead);
+    const google = transformLead(leadsFixture.data[1] as MerittoLead, TEST_TIMEZONE);
     expect(google.source).toBe('google');
   });
 
@@ -33,14 +42,21 @@ describe('meritto transform', () => {
   });
 
   it('normalizes a lead\'s owner to the raw Meritto id (ownerRef), not a name - Meritto never sends a name here', () => {
-    const lead = transformLead({ ...(leadsFixture.data[0] as MerittoLead), owner: ['66b1416d2019436f90a9268da320ee4c'] });
+    const lead = transformLead({ ...(leadsFixture.data[0] as MerittoLead), owner: ['66b1416d2019436f90a9268da320ee4c'] }, TEST_TIMEZONE);
     expect(lead.ownerRef).toBe('66b1416d2019436f90a9268da320ee4c');
   });
 
   it('preserves attribution fields verbatim in attributionRaw without inventing missing ones', () => {
-    const lead = transformLead(leadsFixture.data[2] as MerittoLead);
+    const lead = transformLead(leadsFixture.data[2] as MerittoLead, TEST_TIMEZONE);
     expect(lead.attributionRaw.cf_ad_set_name).toBeNull();
     expect(lead.campaign).toBe('CPA - Lead Gen - Prospecting');
+  });
+
+  it("derives createdAtSource at midnight in the client's own timezone, not UTC - lead_age counts whole days as Meritto's UI shows them (the client's timezone), so anchoring to UTC midnight instead shifted every lead into the wrong calendar day whenever IST had already rolled into 'tomorrow' before UTC midnight", () => {
+    const now = new Date('2026-06-15T10:00:00.000Z'); // 15:30 IST same day
+    const lead = transformLead({ ...(leadsFixture.data[0] as MerittoLead), lead_age: '0 d' }, 'Asia/Kolkata', now);
+    // Midnight IST on 2026-06-15 is 2026-06-14T18:30:00.000Z, not 2026-06-15T00:00:00.000Z (the old UTC-anchored result).
+    expect(lead.createdAtSource).toBe('2026-06-14T18:30:00.000Z');
   });
 
   it('derives call_attempts / first_call_at / connect_attempt / connected from chronological call activities', () => {
@@ -60,6 +76,18 @@ describe('meritto transform', () => {
   it('reports zero attempts and no connection for a lead with no call activity', () => {
     const summary = summarizeCallActivity([]);
     expect(summary).toEqual({ callAttempts: 0, firstCallAt: null, connectAttempt: null, connected: false });
+  });
+
+  it('accepts activity rows reconstructed from persisted lead_activities (no full NormalizedMerittoActivity shape needed) - see merittoSync.ts::getPersistedCallActivityHistory', () => {
+    // A call from 40 days ago (outside a 30-day reconciliation window) plus one from today -
+    // merittoSync.ts merges these two sources before calling this, so both must count.
+    const summary = summarizeCallActivity([
+      { activityType: 'call', activityAt: '2026-08-01T09:00:00.000Z', disposition: 'Not Connected' },
+      { activityType: 'call', activityAt: '2026-09-10T09:00:00.000Z', disposition: 'Connected' },
+    ]);
+    expect(summary.callAttempts).toBe(2);
+    expect(summary.firstCallAt).toBe('2026-08-01T09:00:00.000Z');
+    expect(summary.connected).toBe(true);
   });
 
   describe('buildCallCodeIndex', () => {
@@ -110,6 +138,22 @@ describe('meritto transform', () => {
       expect(index.has('24')).toBe(false);
       expect(index.has('25')).toBe(false);
       expect(index.get('26')).toBe('connected');
+    });
+  });
+
+  describe('buildRegistrationCodeIndex', () => {
+    it('indexes codes in the "Registration" category, ignoring everything else even if it mentions "registered"', () => {
+      const codes: MerittoActivityCode[] = [
+        { code: 10086, name: 'Lead is Registered and Unverified', category: 'Registration' },
+        { code: 10116, name: 'Lead is Registered', category: 'Registration' },
+        { code: 30, name: 'Registered for Webinar', category: 'Events' },
+        { code: 31, name: 'Outbound Call Initiated', category: 'IVR' },
+      ];
+      const index = buildRegistrationCodeIndex(codes);
+      expect(index.has('10086')).toBe(true);
+      expect(index.has('10116')).toBe(true);
+      expect(index.has('30')).toBe(false);
+      expect(index.has('31')).toBe(false);
     });
   });
 

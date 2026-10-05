@@ -174,6 +174,105 @@ export async function upsertMerittoActivities(
   return { created, updated };
 }
 
+/**
+ * Full persisted call-activity history per lead (activity_type='call' rows from
+ * lead_activities), keyed by meritto_lead_id so merittoSync.ts can merge it with the
+ * current run's freshly-fetched window before computing call_attempts/first_call_at/
+ * connect_attempt/connected. Without this, those fields were recomputed from ONLY the
+ * in-window fetch on every scheduled sync - a lead last called before the reconciliation
+ * window (default 30d) had its call history silently reset to "never called" the next
+ * time the sync ran, even though the real activity rows stayed correctly in
+ * lead_activities the whole time. Two full paginated scans (leads, then lead_activities),
+ * not a per-lead or IN-clause query - this account already has 4,000+ leads and 20,000+
+ * activities, well past what a single IN(...) clause or per-lead round-trip would handle
+ * safely (see getCreativeFatigueRows in reportingRepo.ts for the same reasoning).
+ */
+const REPO_PAGE_SIZE = 1000;
+
+/** Shared by getPersistedCallActivityHistory and getPersistedRegistrationTimestamps - both need to translate lead_activities' internal lead_id back to the raw meritto_lead_id the sync loop keys everything else by. */
+async function getMerittoIdByLeadIdMap(clientId: string): Promise<Map<string, string>> {
+  const merittoIdByLeadId = new Map<string, string>();
+  for (let offset = 0; ; offset += REPO_PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('leads')
+      .select('id, meritto_lead_id')
+      .eq('client_id', clientId)
+      .not('meritto_lead_id', 'is', null)
+      .range(offset, offset + REPO_PAGE_SIZE - 1);
+    if (error) throw error;
+    for (const r of data ?? []) merittoIdByLeadId.set(r.id, r.meritto_lead_id as string);
+    if (!data || data.length < REPO_PAGE_SIZE) break;
+  }
+  return merittoIdByLeadId;
+}
+
+export async function getPersistedCallActivityHistory(
+  clientId: string,
+): Promise<Map<string, Array<{ merittoActivityId: string; activityAt: string; disposition: string | null }>>> {
+  const merittoIdByLeadId = await getMerittoIdByLeadIdMap(clientId);
+
+  const result = new Map<string, Array<{ merittoActivityId: string; activityAt: string; disposition: string | null }>>();
+  for (let offset = 0; ; offset += REPO_PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('lead_activities')
+      .select('lead_id, meritto_activity_id, activity_at, outcome')
+      .eq('client_id', clientId)
+      .eq('activity_type', 'call')
+      .not('meritto_activity_id', 'is', null)
+      .range(offset, offset + REPO_PAGE_SIZE - 1);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const merittoLeadId = merittoIdByLeadId.get(row.lead_id);
+      if (!merittoLeadId || !row.meritto_activity_id) continue;
+      const list = result.get(merittoLeadId);
+      const entry = { merittoActivityId: row.meritto_activity_id, activityAt: row.activity_at, disposition: row.outcome };
+      if (list) list.push(entry);
+      else result.set(merittoLeadId, [entry]);
+    }
+    if (!data || data.length < REPO_PAGE_SIZE) break;
+  }
+
+  return result;
+}
+
+/**
+ * Earliest "Lead is Registered[...]" activity timestamp per lead (see buildRegistrationCodeIndex
+ * in merittoTransform.ts), keyed by meritto_lead_id - Meritto's real per-lead registration
+ * moment, timestamped to the second, vs. the whole-day lead_age approximation createdAtSource
+ * otherwise falls back to. Same "persisted, not just this run's fetch window" reasoning as
+ * getPersistedCallActivityHistory: an old lead's registration event may have synced weeks ago
+ * and no longer be in the current reconciliation window's fresh fetch - live-confirmed only 31%
+ * of leads older than 30 days would be covered without reading the persisted history too.
+ * activity_code lives inside raw_data (jsonb), not its own column, so this filters client-side
+ * after a full paginated scan rather than a server-side jsonb query - this account's ~21,000
+ * activities is small enough that the extra transfer is cheap for a once-per-sync batch job.
+ */
+export async function getPersistedRegistrationTimestamps(clientId: string, registrationCodes: Set<string>): Promise<Map<string, string>> {
+  if (registrationCodes.size === 0) return new Map();
+  const merittoIdByLeadId = await getMerittoIdByLeadIdMap(clientId);
+
+  const earliestByMerittoLeadId = new Map<string, string>();
+  for (let offset = 0; ; offset += REPO_PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('lead_activities')
+      .select('lead_id, activity_at, raw_data')
+      .eq('client_id', clientId)
+      .range(offset, offset + REPO_PAGE_SIZE - 1);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const code = (row.raw_data as { activity_code?: unknown } | null)?.activity_code;
+      if (code === undefined || !registrationCodes.has(String(code))) continue;
+      const merittoLeadId = merittoIdByLeadId.get(row.lead_id);
+      if (!merittoLeadId) continue;
+      const existing = earliestByMerittoLeadId.get(merittoLeadId);
+      if (!existing || row.activity_at < existing) earliestByMerittoLeadId.set(merittoLeadId, row.activity_at);
+    }
+    if (!data || data.length < REPO_PAGE_SIZE) break;
+  }
+
+  return earliestByMerittoLeadId;
+}
+
 export async function upsertMerittoPayments(
   clientId: string,
   payments: NormalizedMerittoPayment[],

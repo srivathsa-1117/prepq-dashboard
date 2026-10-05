@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { AsyncSection } from '@/components/common/AsyncSection';
+import { ProgressRow } from '@/components/overview/ProgressRow';
 import { useOverview, useFilterOptions, useTargets, useSaveTargets } from '@/lib/hooks/useDashboardData';
 import { useOrgClient } from '@/lib/providers/OrgClientProvider';
 import type { DashboardFilterState } from '@/lib/hooks/useDashboardFilters';
@@ -18,36 +19,6 @@ const EDITOR_ROLES = new Set(['manager', 'admin', 'owner']);
 function currentMonthStart(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-}
-
-function ProgressRow({
-  label,
-  target,
-  actual,
-  format,
-  detail,
-}: {
-  label: string;
-  target: number;
-  actual: number;
-  format: (n: number) => string;
-  detail?: ReactNode;
-}) {
-  const pct = target > 0 ? Math.min(100, Math.round((actual / target) * 100)) : 0;
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between text-xs">
-        <span className="font-medium text-foreground">{label}</span>
-        <span className="text-muted-foreground">
-          {format(actual)} of {format(target)}
-        </span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-chip">
-        <div className={cn('h-1.5 rounded-full', pct >= 100 ? 'bg-good' : 'bg-primary')} style={{ width: `${pct}%` }} />
-      </div>
-      {detail && <div className="flex items-center justify-between text-xs">{detail}</div>}
-    </div>
-  );
 }
 
 type DraftRow = { courseId: string; leadTarget: string; qualifiedTarget: string; enrollmentTarget: string; revenueTarget: string };

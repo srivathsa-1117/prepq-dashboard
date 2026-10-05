@@ -53,6 +53,8 @@ describe('metricCalculations', () => {
       expect(byBucket['<1h']!.connectRate).toBe(1);
       expect(byBucket['1-4h']!.connectRate).toBe(0);
       expect(result.medianHours).not.toBeNull();
+      expect(result.neverCalled).toBe(1);
+      expect(result.notTimeable).toBe(0);
     });
 
     it('returns null median when no lead has been called yet', () => {
@@ -76,6 +78,8 @@ describe('metricCalculations', () => {
       expect(totalBucketed).toBe(1);
       expect(result.buckets.find((b) => b.bucket === '<1h')!.leads).toBe(0);
       expect(result.medianHours).toBeCloseTo(2);
+      expect(result.notTimeable).toBe(1);
+      expect(result.neverCalled).toBe(0);
     });
   });
 
@@ -273,12 +277,12 @@ describe('metricCalculations', () => {
   });
 
   describe('followUpDepth', () => {
-    it('buckets by connect_attempt, and treats a lead who never connected (with real call attempts) separately', () => {
+    it('buckets by connect_attempt, treats a lead who never connected (with real call attempts) separately, and surfaces zero-call-attempt leads as noActivity instead of dropping them', () => {
       const leads = [
         makeLead({ call_attempts: 1, connect_attempt: 1, connected: true }),
         makeLead({ call_attempts: 2, connect_attempt: 2, connected: true }),
         makeLead({ call_attempts: 3, connect_attempt: null, connected: false }),
-        makeLead({ call_attempts: 0, connect_attempt: null, connected: false }), // never called - excluded entirely
+        makeLead({ call_attempts: 0, connect_attempt: null, connected: false }), // never called - now counted as noActivity, not dropped
       ];
 
       const result = calc.followUpDepth(leads);
@@ -286,6 +290,7 @@ describe('metricCalculations', () => {
       expect(result.byAttempt[1]).toBe(1);
       expect(result.byAttempt[2]).toBe(1);
       expect(result.neverConnected).toBe(1);
+      expect(result.noActivity).toBe(1);
     });
 
     it('folds a connect_attempt of 5 or more into a single 5+ bucket instead of dropping the lead', () => {

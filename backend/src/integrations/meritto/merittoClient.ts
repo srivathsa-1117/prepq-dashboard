@@ -94,6 +94,16 @@ export class MerittoClient {
       'secret-key': this.credentials.apiSecret,
       'content-type': 'application/json',
       accept: 'application/json',
+      // Live-confirmed: a request right after streamLeads' ~3min paginated run (idle gap, then
+      // this account's own 16s inter-call pacing) consistently hangs until connect-timeout and
+      // fails - while the exact same endpoint called fresh, with no prior session, succeeds
+      // immediately every time. Classic symptom of a pooled keep-alive socket going stale
+      // (silently dropped by an intermediate NAT/router after sitting idle) and then being
+      // reused instead of replaced. Forcing a fresh connection per call costs one extra TLS
+      // handshake - negligible next to the 16s pacing this client already waits between calls -
+      // and removes the whole stale-connection-reuse failure class instead of guessing at retry
+      // tuning for a problem that isn't about retry counts.
+      connection: 'close',
     };
   }
 

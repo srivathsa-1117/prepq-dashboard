@@ -12,6 +12,7 @@ import { MetricCard } from '@/components/overview/MetricCard';
 import { Funnel } from '@/components/overview/Funnel';
 import { TrendChart } from '@/components/overview/TrendChart';
 import { TargetsEditor } from '@/components/overview/TargetsEditor';
+import { TargetsByCourse } from '@/components/overview/TargetsByCourse';
 import { EnrolledLeadsRevenue } from '@/components/overview/EnrolledLeadsRevenue';
 import { AgingBuckets } from '@/components/overview/AgingBuckets';
 import { SpeedToLead } from '@/components/overview/SpeedToLead';
@@ -46,6 +47,7 @@ function KpiRow() {
       {(data) => (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
           <MetricCard label="Leads" value={formatNumber(data.leads)} deltaPct={data.periodOverPeriod.deltaPct} />
+          <MetricCard label="Qualified" value={formatNumber(data.qualified)} />
           <MetricCard label="Qualified rate" value={formatPercent(data.qualifiedRate)} />
           <MetricCard label="Enrolled" value={formatNumber(data.enrolled)} />
           <MetricCard label="Spend" value={formatCurrencyCompact(data.spend)} />
@@ -93,6 +95,8 @@ function OverviewContent() {
         </div>
         <TargetsEditor filters={filters} />
       </div>
+
+      <TargetsByCourse filters={filters} />
 
       <Funnel filters={filters} />
 
