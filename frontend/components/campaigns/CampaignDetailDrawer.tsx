@@ -150,7 +150,11 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function AdList({ ads }: { ads: Array<{ adId: string; adName: string | null; spend: number; leads: number; qualifiedRate: number }> }) {
+function AdList({
+  ads,
+}: {
+  ads: Array<{ adId: string; adName: string | null; spend: number; leads: number; qualified: number; qualifiedRate: number; enrolled: number }>;
+}) {
   if (ads.length === 0) return <p className="text-xs text-muted-foreground">No data for this period.</p>;
   return (
     <div className="flex flex-col gap-2">
@@ -159,6 +163,8 @@ function AdList({ ads }: { ads: Array<{ adId: string; adName: string | null; spe
           <span className="truncate text-xs font-medium text-foreground">{ad.adName ?? ad.adId}</span>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>{formatNumber(ad.leads)} leads</span>
+            <span>{formatNumber(ad.qualified)} qual.</span>
+            <span>{formatNumber(ad.enrolled)} enrolled</span>
             <Badge variant="outline">{formatPercent(ad.qualifiedRate)}</Badge>
           </div>
         </div>

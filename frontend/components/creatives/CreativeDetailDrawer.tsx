@@ -71,6 +71,7 @@ export function CreativeDetailDrawer({
                 <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
                   <Stat label="Spend" value={formatCurrencyCompact(data.performance.spend)} />
                   <Stat label="Leads" value={formatNumber(data.performance.leads)} />
+                  <Stat label="Qualified" value={formatNumber(data.performance.qualified)} />
                   <Stat label="Qual. rate" value={formatPercent(data.performance.qualifiedRate)} />
                   <Stat label="Enrolled" value={formatNumber(data.performance.enrolled)} />
                   <Stat label="Revenue" value={formatCurrencyCompact(data.performance.revenue)} />

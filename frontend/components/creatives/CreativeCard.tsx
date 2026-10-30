@@ -35,10 +35,11 @@ export function CreativeCard({ creative, onClick }: { creative: CreativeRow; onC
           {creative.creativeName}
         </p>
         <p className="truncate text-xs text-muted-foreground">{creative.campaignName ?? 'Not yet mapped to a campaign'}</p>
-        <div className="grid grid-cols-3 gap-1.5 text-xs">
+        <div className="grid grid-cols-2 gap-1.5 text-xs">
           <Metric label="Leads" value={formatNumber(creative.leads)} />
-          <Metric label="Qual." value={formatPercent(creative.qualifiedRate)} />
           <Metric label="CPL" value={formatCurrencyCompact(creative.cpl)} />
+          <Metric label="Qualified" value={`${formatNumber(creative.qualified)} · ${formatPercent(creative.qualifiedRate)}`} />
+          <Metric label="Enrolled" value={formatNumber(creative.enrolled)} />
         </div>
       </div>
     </Card>

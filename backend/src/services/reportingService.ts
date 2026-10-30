@@ -21,6 +21,7 @@ import {
   getCampaignDailyTrend,
   getCampaignAdGroups,
   getCampaignAds,
+  getEnrolledCountByAdId,
   getCampaignCreatives,
   getCreativeLibraryInfo,
   getCreativeDailyTrend,
@@ -564,6 +565,17 @@ export async function getCampaignDetail(req: ResolvedRequest, campaignId: string
     creativesRaw.map((c) => c.creative_id),
   );
 
+  // fn_campaign_ads has no enrolled count - derived directly from leads instead (see
+  // getEnrolledCountByAdId's doc comment). Computed once for every ad here rather than per
+  // top/worst slice, since both are just different slices of the same `ads` set.
+  const enrolledByAdId = await getEnrolledCountByAdId(
+    req.clientId,
+    platform,
+    ads.map((a) => a.ad_id),
+    req.range.from,
+    req.range.to,
+  );
+
   const adsRanked = [...ads].sort((a, b) => Number(b.leads) - Number(a.leads));
 
   return {
@@ -612,7 +624,9 @@ export async function getCampaignDetail(req: ResolvedRequest, campaignId: string
       adName: a.ad_name,
       spend: Number(a.spend),
       leads: Number(a.leads),
+      qualified: Number(a.qualified),
       qualifiedRate: calc.rate(Number(a.qualified), Number(a.leads)),
+      enrolled: enrolledByAdId.get(a.ad_id) ?? 0,
     })),
     worstAds: [...adsRanked]
       .reverse()
@@ -622,7 +636,9 @@ export async function getCampaignDetail(req: ResolvedRequest, campaignId: string
         adName: a.ad_name,
         spend: Number(a.spend),
         leads: Number(a.leads),
+        qualified: Number(a.qualified),
         qualifiedRate: calc.rate(Number(a.qualified), Number(a.leads)),
+        enrolled: enrolledByAdId.get(a.ad_id) ?? 0,
       })),
     creatives: creativesRaw.map((c) => ({
       creativeId: c.creative_id,

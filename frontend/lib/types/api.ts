@@ -392,8 +392,8 @@ export interface CampaignDetailResponse {
     qualified: number;
     qualifiedRate: number;
   }>;
-  topAds: Array<{ adId: string; adName: string | null; spend: number; leads: number; qualifiedRate: number }>;
-  worstAds: Array<{ adId: string; adName: string | null; spend: number; leads: number; qualifiedRate: number }>;
+  topAds: Array<{ adId: string; adName: string | null; spend: number; leads: number; qualified: number; qualifiedRate: number; enrolled: number }>;
+  worstAds: Array<{ adId: string; adName: string | null; spend: number; leads: number; qualified: number; qualifiedRate: number; enrolled: number }>;
   creatives: Array<{
     creativeId: string;
     creativeName: string;

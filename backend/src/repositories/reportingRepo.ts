@@ -753,6 +753,47 @@ export async function getCampaignAds(clientId: string, platform: 'meta' | 'googl
   return data ?? [];
 }
 
+/**
+ * Enrolled lead count per ad, scoped by created_at in [from, to] - fn_campaign_ads doesn't
+ * compute this today, so it's derived directly from leads here instead of touching that SQL
+ * function (same application-layer approach already used for the campaign-status-hierarchy and
+ * campaign-row-merge fixes). adIds are already-resolved internal meta_ads.id/google_ads.id values
+ * (leads.meta_ad_id/google_ad_id's FK target), matching what fn_campaign_ads itself returns as
+ * ad_id, so no extra lookup is needed to line them up.
+ */
+export async function getEnrolledCountByAdId(
+  clientId: string,
+  platform: 'meta' | 'google',
+  adIds: string[],
+  from: string,
+  to: string,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (adIds.length === 0) return counts;
+
+  const column = platform === 'meta' ? 'meta_ad_id' : 'google_ad_id';
+  const PAGE_SIZE = 1000;
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('leads')
+      .select(column)
+      .eq('client_id', clientId)
+      .in(column, adIds)
+      .gte('created_at', `${from}T00:00:00.000Z`)
+      .lte('created_at', `${to}T23:59:59.999Z`)
+      .not('enrolled_at', 'is', null)
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw error;
+    for (const row of (data ?? []) as Array<Record<string, string | null>>) {
+      const adId = row[column];
+      if (!adId) continue;
+      counts.set(adId, (counts.get(adId) ?? 0) + 1);
+    }
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return counts;
+}
+
 export async function getCampaignCreatives(clientId: string, platform: 'meta' | 'google', campaignId: string, from: string, to: string) {
   const { data, error } = await supabaseAdmin.rpc('fn_campaign_creatives', {
     p_client_id: clientId,

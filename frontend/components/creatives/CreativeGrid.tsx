@@ -68,7 +68,10 @@ export function CreativeGrid({ filters, onSelect }: { filters: DashboardFilterSt
                     </div>
                     <Badge variant={creativeStatusVariant(c.status)}>{creativeStatusLabel(c.status)}</Badge>
                     <span className="w-16 shrink-0 text-right text-xs tabular-nums text-foreground">{formatNumber(c.leads)} leads</span>
-                    <span className="w-16 shrink-0 text-right text-xs tabular-nums text-foreground">{formatPercent(c.qualifiedRate)}</span>
+                    <span className="w-24 shrink-0 text-right text-xs tabular-nums text-foreground">
+                      {formatNumber(c.qualified)} qual. ({formatPercent(c.qualifiedRate)})
+                    </span>
+                    <span className="w-20 shrink-0 text-right text-xs tabular-nums text-foreground">{formatNumber(c.enrolled)} enrolled</span>
                     <span className="w-20 shrink-0 text-right text-xs tabular-nums text-foreground">{formatCurrencyCompact(c.spend)}</span>
                     <FatigueBadge fatigue={c.fatigue} />
                   </button>
