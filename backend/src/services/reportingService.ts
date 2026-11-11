@@ -495,8 +495,25 @@ export async function getCreativePerformance(req: ResolvedRequest) {
     req.range.to,
   );
 
+  // Same gap as getCampaignPerformance's `totals` (see its comment): creative rows only cover
+  // leads that matched a real creative, so the hero KPI strip is computed from all matching leads
+  // instead of summed from `creatives`, to avoid silently dropping unattributed leads again.
+  const [feeMap, trueLeads] = await Promise.all([feeMapFor(req.clientId), getLeadsCreatedInRange(req.clientId, req.range.from, req.range.to, req.filters)]);
+  const rowSpendTotals = rows.reduce(
+    (acc, r) => ({ spend: acc.spend + Number(r.spend), impressions: acc.impressions + Number(r.impressions), clicks: acc.clicks + Number(r.clicks) }),
+    { spend: 0, impressions: 0, clicks: 0 },
+  );
+  const totals = {
+    ...rowSpendTotals,
+    leads: trueLeads.length,
+    qualified: trueLeads.filter((l) => l.status === 'qualified').length,
+    enrolled: calc.countEnrolled(trueLeads),
+    revenue: sumEnrolledRevenue(trueLeads, feeMap),
+  };
+
   return {
     range: req.range,
+    totals,
     creatives: rows.map((r) => {
       const impressions = Number(r.impressions);
       const clicks = Number(r.clicks);

@@ -466,6 +466,16 @@ export interface CreativeRow {
 
 export interface CreativePerformanceResponse {
   range: DateRange;
+  /** True totals for the current filters, including leads with no creative-level match (see CreativeHeroKpis.tsx) - not a sum of `creatives`. */
+  totals: {
+    spend: number;
+    impressions: number;
+    clicks: number;
+    leads: number;
+    qualified: number;
+    enrolled: number;
+    revenue: number;
+  };
   creatives: CreativeRow[];
 }
 

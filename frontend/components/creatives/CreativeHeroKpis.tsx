@@ -25,7 +25,7 @@ export function CreativeHeroKpis({ filters }: { filters: DashboardFilterState })
       {(data) => {
         const live = data.creatives.filter((c) => c.status === 'active');
         const fatiguing = data.creatives.filter((c) => c.fatigue?.trend === 'declining').length;
-        const t = calc.sumCampaignTotals(data.creatives);
+        const t = data.totals;
         return (
           <Card>
             <CardContent className="grid grid-cols-2 gap-4 py-5 sm:grid-cols-3 lg:grid-cols-6">
