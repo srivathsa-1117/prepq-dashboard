@@ -424,8 +424,30 @@ export async function getCampaignPerformance(req: ResolvedRequest) {
   ]);
   const notReachableByCampaignId = new Map([...metaNotReachable, ...googleNotReachable]);
 
+  // Campaign rows only cover leads whose Meritto free-text "campaign" field matched a real
+  // campaign name (see attributionLookupRepo.ts's exact-match resolver) - some leads legitimately
+  // have no campaign-level match (blank/mismatched text from the source CRM) and are deliberately
+  // left out of every campaign row rather than guessed into one. The KPI strip above the table is
+  // meant to show the client's true totals for the current filters though, so it's computed
+  // straight from all matching leads (same shape as Overview/getSourcePerformance), not summed
+  // from the (necessarily incomplete) campaign rows. Spend/impressions/clicks aren't affected by
+  // this gap - those come from the ad platforms directly, independent of lead attribution.
+  const [feeMap, trueLeads] = await Promise.all([feeMapFor(req.clientId), getLeadsCreatedInRange(req.clientId, req.range.from, req.range.to, req.filters)]);
+  const rowSpendTotals = rows.reduce(
+    (acc, r) => ({ spend: acc.spend + Number(r.spend), impressions: acc.impressions + Number(r.impressions), clicks: acc.clicks + Number(r.clicks) }),
+    { spend: 0, impressions: 0, clicks: 0 },
+  );
+  const totals = {
+    ...rowSpendTotals,
+    leads: trueLeads.length,
+    qualified: trueLeads.filter((l) => l.status === 'qualified').length,
+    enrolled: calc.countEnrolled(trueLeads),
+    revenue: sumEnrolledRevenue(trueLeads, feeMap),
+  };
+
   return {
     range: req.range,
+    totals,
     campaigns: rows.map((r) => ({
       provider: r.platform,
       campaignId: r.campaign_id,

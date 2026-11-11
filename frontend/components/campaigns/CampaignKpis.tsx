@@ -8,7 +8,12 @@ import type { DashboardFilterState } from '@/lib/hooks/useDashboardFilters';
 import { formatCurrencyCompact, formatMultiplier, formatNumber, formatPercent } from '@/lib/utils/format';
 import * as calc from '@/lib/utils/campaignTotals';
 
-/** Overview totals row above the campaign table (spec §7) - summed client-side from the already-fetched per-campaign rows, not a separate API call. */
+/**
+ * Overview totals row above the campaign table (spec §7) - uses the API's `totals` field, not a
+ * sum of `campaigns`, since some leads have no campaign-level match and are correctly left out of
+ * every campaign row (see reportingService.ts's getCampaignPerformance) but should still count
+ * toward the client's true Leads/Qualified/Enrolled/Revenue totals here.
+ */
 export function CampaignKpis({ filters }: { filters: DashboardFilterState }) {
   const { selectedClientId } = useOrgClient();
   const query = useCampaignPerformance(selectedClientId, filters);
@@ -29,7 +34,7 @@ export function CampaignKpis({ filters }: { filters: DashboardFilterState }) {
       }
     >
       {(data) => {
-        const t = calc.sumCampaignTotals(data.campaigns);
+        const t = data.totals;
         return (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
             <MetricCard label="Campaigns" value={formatNumber(data.campaigns.length)} />

@@ -376,6 +376,16 @@ export interface CampaignRow {
 
 export interface CampaignPerformanceResponse {
   range: DateRange;
+  /** True totals for the current filters, including leads with no campaign-level match (see CampaignKpis.tsx) - not a sum of `campaigns`. */
+  totals: {
+    spend: number;
+    impressions: number;
+    clicks: number;
+    leads: number;
+    qualified: number;
+    enrolled: number;
+    revenue: number;
+  };
   campaigns: CampaignRow[];
 }
 
