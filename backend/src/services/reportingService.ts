@@ -22,6 +22,8 @@ import {
   getCampaignAdGroups,
   getCampaignAds,
   getEnrolledCountByAdId,
+  getNotReachableCountByCampaign,
+  getNotReachableCountByCreative,
   getCampaignCreatives,
   getCreativeLibraryInfo,
   getCreativeDailyTrend,
@@ -411,6 +413,17 @@ export async function getCampaignPerformance(req: ResolvedRequest) {
     campaignId: req.filters.campaignFilter?.id,
   });
 
+  // fn_campaign_performance_range has no not_reachable ("No Response") breakdown - derived
+  // directly from leads instead (see getNotReachableCountByCampaign's doc comment). Rows can mix
+  // meta and google campaigns, so split by platform first - the lookup needs one platform at a time.
+  const metaIds = rows.filter((r) => r.platform === 'meta').map((r) => r.campaign_id);
+  const googleIds = rows.filter((r) => r.platform === 'google').map((r) => r.campaign_id);
+  const [metaNotReachable, googleNotReachable] = await Promise.all([
+    getNotReachableCountByCampaign(req.clientId, 'meta', metaIds, req.range.from, req.range.to),
+    getNotReachableCountByCampaign(req.clientId, 'google', googleIds, req.range.from, req.range.to),
+  ]);
+  const notReachableByCampaignId = new Map([...metaNotReachable, ...googleNotReachable]);
+
   return {
     range: req.range,
     campaigns: rows.map((r) => ({
@@ -426,6 +439,7 @@ export async function getCampaignPerformance(req: ResolvedRequest) {
       leads: Number(r.leads),
       qualified: Number(r.qualified),
       qualifiedRate: calc.rate(Number(r.qualified), Number(r.leads)),
+      notReachable: notReachableByCampaignId.get(r.campaign_id) ?? 0,
       enrolled: Number(r.enrolled),
       revenue: Number(r.revenue),
       cpl: calc.costPerLead(Number(r.spend), Number(r.leads)),
@@ -448,6 +462,15 @@ export async function getCreativePerformance(req: ResolvedRequest) {
   const fatigueMap = await getCreativeFatigueMap(
     req.clientId,
     rows.map((r) => r.creative_id),
+  );
+
+  // fn_creative_performance_range has no not_reachable ("No Response") breakdown - derived
+  // directly from leads instead (see getNotReachableCountByCreative's doc comment).
+  const notReachableByCreativeId = await getNotReachableCountByCreative(
+    req.clientId,
+    rows.map((r) => r.creative_id),
+    req.range.from,
+    req.range.to,
   );
 
   return {
@@ -481,6 +504,7 @@ export async function getCreativePerformance(req: ResolvedRequest) {
         qualifiedRate: calc.rate(qualified, leads),
         junk,
         junkRate: calc.rate(junk, leads),
+        notReachable: notReachableByCreativeId.get(r.creative_id) ?? 0,
         enrolled,
         costPerQualified: calc.costPerQualified(spend, qualified),
         costPerEnrollment: calc.costPerEnrollment(spend, enrolled),
@@ -576,6 +600,10 @@ export async function getCampaignDetail(req: ResolvedRequest, campaignId: string
     req.range.to,
   );
 
+  // "No Response" (not_reachable) count for the campaign summary - same application-layer
+  // derivation as enrolledByAdId above, see getNotReachableCountByCampaign's doc comment.
+  const notReachableByCampaignId = await getNotReachableCountByCampaign(req.clientId, platform, [campaignId], req.range.from, req.range.to);
+
   const adsRanked = [...ads].sort((a, b) => Number(b.leads) - Number(a.leads));
 
   return {
@@ -593,6 +621,7 @@ export async function getCampaignDetail(req: ResolvedRequest, campaignId: string
       leads: Number(summary.leads),
       qualified: Number(summary.qualified),
       qualifiedRate: calc.rate(Number(summary.qualified), Number(summary.leads)),
+      notReachable: notReachableByCampaignId.get(campaignId) ?? 0,
       enrolled: Number(summary.enrolled),
       revenue: Number(summary.revenue),
       cpl: calc.costPerLead(Number(summary.spend), Number(summary.leads)),
@@ -646,6 +675,7 @@ export async function getCampaignDetail(req: ResolvedRequest, campaignId: string
       creativePreviewUrl: pickGridPreviewUrl(c.asset_url, c.thumbnail_url),
       spend: Number(c.spend),
       leads: Number(c.leads),
+      qualified: Number(c.qualified),
       qualifiedRate: calc.rate(Number(c.qualified), Number(c.leads)),
       fatigue: fatigueMap.get(c.creative_id) ?? null,
     })),
@@ -681,6 +711,11 @@ export async function getCreativeDetail(req: ResolvedRequest, creativeId: string
   const enrolled = Number(performance?.enrolled ?? 0);
   const revenue = Number(performance?.revenue ?? 0);
 
+  // fn_creative_performance_range has no not_reachable ("No Response") breakdown - derived
+  // directly from leads instead (see getNotReachableCountByCreative's doc comment).
+  const notReachableByCreativeId = await getNotReachableCountByCreative(req.clientId, [creativeId], req.range.from, req.range.to);
+  const notReachable = notReachableByCreativeId.get(creativeId) ?? 0;
+
   return {
     range: req.range,
     creative: {
@@ -701,6 +736,7 @@ export async function getCreativeDetail(req: ResolvedRequest, creativeId: string
       qualifiedRate: calc.rate(qualified, leads),
       junk,
       junkRate: calc.rate(junk, leads),
+      notReachable,
       enrolled,
       costPerQualified: calc.costPerQualified(spend, qualified),
       costPerEnrollment: calc.costPerEnrollment(spend, enrolled),

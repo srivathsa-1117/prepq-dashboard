@@ -72,6 +72,7 @@ export function CreativeGrid({ filters, onSelect }: { filters: DashboardFilterSt
                       {formatNumber(c.qualified)} qual. ({formatPercent(c.qualifiedRate)})
                     </span>
                     <span className="w-20 shrink-0 text-right text-xs tabular-nums text-foreground">{formatNumber(c.enrolled)} enrolled</span>
+                    <span className="w-24 shrink-0 text-right text-xs tabular-nums text-foreground">{formatNumber(c.notReachable)} no resp.</span>
                     <span className="w-20 shrink-0 text-right text-xs tabular-nums text-foreground">{formatCurrencyCompact(c.spend)}</span>
                     <FatigueBadge fatigue={c.fatigue} />
                   </button>

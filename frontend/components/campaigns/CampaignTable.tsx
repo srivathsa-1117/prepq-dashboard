@@ -19,7 +19,19 @@ import { cn } from '@/lib/utils/cn';
 
 type SortKey = keyof Pick<
   CampaignRow,
-  'campaignName' | 'impressions' | 'clicks' | 'ctr' | 'spend' | 'leads' | 'qualified' | 'qualifiedRate' | 'enrolled' | 'revenue' | 'cpl' | 'roas'
+  | 'campaignName'
+  | 'impressions'
+  | 'clicks'
+  | 'ctr'
+  | 'spend'
+  | 'leads'
+  | 'qualified'
+  | 'qualifiedRate'
+  | 'notReachable'
+  | 'enrolled'
+  | 'revenue'
+  | 'cpl'
+  | 'roas'
 >;
 
 const COLUMNS: Array<{ key: SortKey; label: string; align?: 'right' }> = [
@@ -31,6 +43,7 @@ const COLUMNS: Array<{ key: SortKey; label: string; align?: 'right' }> = [
   { key: 'leads', label: 'Leads', align: 'right' },
   { key: 'qualified', label: 'Qualified', align: 'right' },
   { key: 'qualifiedRate', label: 'Qual. rate', align: 'right' },
+  { key: 'notReachable', label: 'No Response', align: 'right' },
   { key: 'enrolled', label: 'Enrolled', align: 'right' },
   { key: 'revenue', label: 'Revenue', align: 'right' },
   { key: 'cpl', label: 'CPL', align: 'right' },
@@ -162,6 +175,7 @@ export function CampaignTable({
                         <TableCell className="text-right tabular-nums">{formatNumber(c.leads)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatNumber(c.qualified)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatPercent(c.qualifiedRate)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(c.notReachable)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatNumber(c.enrolled)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatCurrencyCompact(c.revenue)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatCurrencyCompact(c.cpl)}</TableCell>

@@ -40,6 +40,7 @@ export function CreativeCard({ creative, onClick }: { creative: CreativeRow; onC
           <Metric label="CPL" value={formatCurrencyCompact(creative.cpl)} />
           <Metric label="Qualified" value={`${formatNumber(creative.qualified)} · ${formatPercent(creative.qualifiedRate)}`} />
           <Metric label="Enrolled" value={formatNumber(creative.enrolled)} />
+          <Metric label="No Response" value={formatNumber(creative.notReachable)} />
         </div>
       </div>
     </Card>

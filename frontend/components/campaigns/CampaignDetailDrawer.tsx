@@ -43,7 +43,9 @@ export function CampaignDetailDrawer({
                 <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
                   <Stat label="Spend" value={formatCurrencyCompact(data.campaign.spend)} />
                   <Stat label="Leads" value={formatNumber(data.campaign.leads)} />
+                  <Stat label="Qualified" value={formatNumber(data.campaign.qualified)} />
                   <Stat label="Qual. rate" value={formatPercent(data.campaign.qualifiedRate)} />
+                  <Stat label="No Response" value={formatNumber(data.campaign.notReachable)} />
                   <Stat label="Enrolled" value={formatNumber(data.campaign.enrolled)} />
                   <Stat label="Revenue" value={formatCurrencyCompact(data.campaign.revenue)} />
                   <Stat label="CPL" value={formatCurrencyCompact(data.campaign.cpl)} />
@@ -85,6 +87,7 @@ export function CampaignDetailDrawer({
                           <TableHead>Name</TableHead>
                           <TableHead className="text-right">Spend</TableHead>
                           <TableHead className="text-right">Leads</TableHead>
+                          <TableHead className="text-right">Qualified</TableHead>
                           <TableHead className="text-right">Qual. rate</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -94,6 +97,7 @@ export function CampaignDetailDrawer({
                             <TableCell className="max-w-[180px] truncate font-medium text-foreground">{g.adsetName ?? g.adsetId}</TableCell>
                             <TableCell className="text-right tabular-nums">{formatCurrencyCompact(g.spend)}</TableCell>
                             <TableCell className="text-right tabular-nums">{formatNumber(g.leads)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{formatNumber(g.qualified)}</TableCell>
                             <TableCell className="text-right tabular-nums">{formatPercent(g.qualifiedRate)}</TableCell>
                           </TableRow>
                         ))}
@@ -124,7 +128,7 @@ export function CampaignDetailDrawer({
                           <span className="truncate text-xs font-medium text-foreground">{c.creativeName}</span>
                           <div className="flex items-center gap-3 text-xs text-muted-foreground">
                             <span>{formatNumber(c.leads)} leads</span>
-                            <span>{formatPercent(c.qualifiedRate)}</span>
+                            <span>{formatNumber(c.qualified)} qual. ({formatPercent(c.qualifiedRate)})</span>
                             <FatigueBadge fatigue={c.fatigue} />
                           </div>
                         </div>

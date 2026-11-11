@@ -11,7 +11,7 @@ import { chartColor } from '@/lib/utils/colors';
 const STATUS_LABEL: Record<string, string> = {
   qualified: 'Qualified',
   not_qualified: 'Not qualified',
-  not_reachable: 'Not reachable',
+  not_reachable: 'No Response',
   junk: 'Junk',
   uncalled: 'No Activity / No Log',
 };

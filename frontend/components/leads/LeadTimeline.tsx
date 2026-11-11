@@ -11,7 +11,7 @@ import type { LeadStatus } from '@/lib/types/api';
 const STATUS_LABEL: Record<LeadStatus, string> = {
   qualified: 'Qualified',
   not_qualified: 'Not qualified',
-  not_reachable: 'Not reachable',
+  not_reachable: 'No Response',
   junk: 'Junk',
   uncalled: 'No Activity / No Log',
 };

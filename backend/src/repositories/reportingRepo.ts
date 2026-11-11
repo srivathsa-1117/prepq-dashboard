@@ -794,6 +794,80 @@ export async function getEnrolledCountByAdId(
   return counts;
 }
 
+/**
+ * "No Response" count per campaign, scoped by created_at in [from, to] - fn_campaign_performance_range
+ * has no not_reachable breakdown today, so it's derived directly from leads here, same
+ * application-layer approach (and exact structure) as getEnrolledCountByAdId above. campaignIds are
+ * the internal meta_campaigns.id/google_campaigns.id values the campaign RPCs already return,
+ * matching leads.meta_campaign_id/google_campaign_id's FK target.
+ */
+export async function getNotReachableCountByCampaign(
+  clientId: string,
+  platform: 'meta' | 'google',
+  campaignIds: string[],
+  from: string,
+  to: string,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (campaignIds.length === 0) return counts;
+
+  const column = platform === 'meta' ? 'meta_campaign_id' : 'google_campaign_id';
+  const PAGE_SIZE = 1000;
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('leads')
+      .select(column)
+      .eq('client_id', clientId)
+      .in(column, campaignIds)
+      .eq('status', 'not_reachable')
+      .gte('created_at', `${from}T00:00:00.000Z`)
+      .lte('created_at', `${to}T23:59:59.999Z`)
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw error;
+    for (const row of (data ?? []) as Array<Record<string, string | null>>) {
+      const campaignId = row[column];
+      if (!campaignId) continue;
+      counts.set(campaignId, (counts.get(campaignId) ?? 0) + 1);
+    }
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return counts;
+}
+
+/**
+ * Same as getNotReachableCountByCampaign, but per creative - leads.creative_id is a single
+ * platform-agnostic column (no meta/google split needed, unlike campaign/ad ids).
+ */
+export async function getNotReachableCountByCreative(
+  clientId: string,
+  creativeIds: string[],
+  from: string,
+  to: string,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (creativeIds.length === 0) return counts;
+
+  const PAGE_SIZE = 1000;
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('leads')
+      .select('creative_id')
+      .eq('client_id', clientId)
+      .in('creative_id', creativeIds)
+      .eq('status', 'not_reachable')
+      .gte('created_at', `${from}T00:00:00.000Z`)
+      .lte('created_at', `${to}T23:59:59.999Z`)
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (!row.creative_id) continue;
+      counts.set(row.creative_id, (counts.get(row.creative_id) ?? 0) + 1);
+    }
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return counts;
+}
+
 export async function getCampaignCreatives(clientId: string, platform: 'meta' | 'google', campaignId: string, from: string, to: string) {
   const { data, error } = await supabaseAdmin.rpc('fn_campaign_creatives', {
     p_client_id: clientId,

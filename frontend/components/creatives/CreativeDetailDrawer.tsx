@@ -74,6 +74,7 @@ export function CreativeDetailDrawer({
                   <Stat label="Qualified" value={formatNumber(data.performance.qualified)} />
                   <Stat label="Qual. rate" value={formatPercent(data.performance.qualifiedRate)} />
                   <Stat label="Enrolled" value={formatNumber(data.performance.enrolled)} />
+                  <Stat label="No Response" value={formatNumber(data.performance.notReachable)} />
                   <Stat label="Revenue" value={formatCurrencyCompact(data.performance.revenue)} />
                   <Stat label="CPL" value={formatCurrencyCompact(data.performance.cpl)} />
                   <Stat label="ROAS" value={formatMultiplier(data.performance.roas)} />

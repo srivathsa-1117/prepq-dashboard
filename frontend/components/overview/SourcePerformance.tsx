@@ -77,6 +77,7 @@ export function SourcePerformance({ filters }: { filters: DashboardFilterState }
                 <TableRow>
                   <TableHead>Source</TableHead>
                   <TableHead className="text-right">Leads</TableHead>
+                  <TableHead className="text-right">Qualified</TableHead>
                   <TableHead className="text-right">Qualified rate</TableHead>
                   <TableHead className="text-right">Enrolled</TableHead>
                   <TableHead className="text-right">Spend</TableHead>
@@ -89,6 +90,7 @@ export function SourcePerformance({ filters }: { filters: DashboardFilterState }
                   <TableRow key={s.source}>
                     <TableCell className="font-medium capitalize text-foreground">{s.source}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(s.leads)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatNumber(s.qualified)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatPercent(s.qualifiedRate)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(s.enrolled)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrencyCompact(s.spend)}</TableCell>

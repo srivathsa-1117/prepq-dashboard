@@ -365,6 +365,7 @@ export interface CampaignRow {
   leads: number;
   qualified: number;
   qualifiedRate: number;
+  notReachable: number;
   enrolled: number;
   revenue: number;
   cpl: number | null;
@@ -400,6 +401,7 @@ export interface CampaignDetailResponse {
     creativePreviewUrl: string | null;
     spend: number;
     leads: number;
+    qualified: number;
     qualifiedRate: number;
     fatigue: FatigueResult | null;
   }>;
@@ -443,6 +445,7 @@ export interface CreativeRow {
   qualifiedRate: number;
   junk: number;
   junkRate: number;
+  notReachable: number;
   enrolled: number;
   costPerQualified: number | null;
   costPerEnrollment: number | null;
@@ -496,6 +499,7 @@ export interface CreativeDetailResponse {
     qualifiedRate: number;
     junk: number;
     junkRate: number;
+    notReachable: number;
     enrolled: number;
     costPerQualified: number | null;
     costPerEnrollment: number | null;
