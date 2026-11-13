@@ -346,6 +346,27 @@ describe('metricCalculations', () => {
       const rows = calc.salesTeamBreakdown(ranged, [], new Date());
       expect(rows[0]!.owner).toBe('High');
     });
+
+    it('excludes negative-hours response times from the median instead of letting one dominate a small sample', () => {
+      // Real bug hit live: created_at is day-granularity (reconstructed from lead_age, not a real
+      // timestamp - see speedToLead's doc comment), so a same-day call can diff out negative against
+      // it. On a rep with only 2 leads this single bad value controlled the whole median, showing a
+      // literal "-56115m" response time once an owner-mapping fix correctly shrank that rep's bucket
+      // down to 2 leads (previously diluted by hundreds of other leads wrongly bucketed under them).
+      const ranged = [
+        makeLead({ owner: 'Febi', created_at: '2026-11-10T00:00:00Z', first_call_at: '2026-11-09T18:00:00Z' }), // -6h, excluded
+        makeLead({ owner: 'Febi', created_at: '2026-11-10T00:00:00Z', first_call_at: '2026-11-10T04:00:00Z' }), // real 4h, kept
+      ];
+      const rows = calc.salesTeamBreakdown(ranged, [], new Date());
+      const febi = rows.find((r) => r.owner === 'Febi')!;
+      expect(febi.medianResponseHours).toBeCloseTo(4);
+    });
+
+    it('is null (not fabricated) when every called lead for an owner has an unmeasurable negative gap', () => {
+      const ranged = [makeLead({ owner: 'Febi', created_at: '2026-11-10T00:00:00Z', first_call_at: '2026-11-09T12:00:00Z' })];
+      const rows = calc.salesTeamBreakdown(ranged, [], new Date());
+      expect(rows.find((r) => r.owner === 'Febi')!.medianResponseHours).toBeNull();
+    });
   });
 
   describe('creativeFatigue', () => {

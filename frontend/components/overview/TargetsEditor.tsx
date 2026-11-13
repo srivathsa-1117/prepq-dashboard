@@ -152,14 +152,21 @@ function EditTargetsDialog({
 export function TargetsEditor({ filters }: { filters: DashboardFilterState }) {
   const { selectedClientId, selectedRole } = useOrgClient();
   const query = useOverview(selectedClientId, filters);
+  const filterOptionsQuery = useFilterOptions(selectedClientId);
   const [editorOpen, setEditorOpen] = useState(false);
   const canEdit = !!selectedRole && EDITOR_ROLES.has(selectedRole);
   const month = currentMonthStart();
 
+  // monthlyTargets/targetPacing are scoped to the active Course filter (unlike "Targets by course"
+  // below, which deliberately always shows every course) - this used to read as "335 of 915" with
+  // no indication that was EA Program only, not the account total, which looked like the two
+  // widgets disagreed. Naming the active course here makes the scoping visible instead of implicit.
+  const activeCourseName = filters.course ? filterOptionsQuery.data?.courses.find((c) => c.code === filters.course)?.name : undefined;
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-        <CardTitle>Targets (this month)</CardTitle>
+        <CardTitle>Targets (this month){activeCourseName ? ` · ${activeCourseName}` : ''}</CardTitle>
         {canEdit && selectedClientId && (
           <Button variant="outline" size="sm" onClick={() => setEditorOpen(true)}>
             Edit targets
