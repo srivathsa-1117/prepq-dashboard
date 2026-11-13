@@ -333,9 +333,34 @@ export async function applyEnrollmentFromPayments(
  * observed enrollment and can never overwrite a value a user later edits manually, or that a
  * payments integration sets if one is ever wired up.
  */
-export async function applyEnrollmentFromDisposition(enrolledAtByLeadUuid: Map<string, string>): Promise<void> {
+/**
+ * Returns the subset of leadIds that were actually newly enrolled by this call (i.e. the
+ * `.is('enrolled_at', null)` guard matched) - every sync run re-submits every currently-"Enrolled"
+ * lead here, including ones enrolled long ago, so this is how a caller tells "genuinely enrolling
+ * for the first time just now" apart from "already enrolled, update was a no-op". Used by
+ * merittoSync.ts to scope the mode-aware auto-fee (applyAutoFeeFromCourseMode below) to leads
+ * enrolling from 2026-11-13 onward only, never retroactively onto already-enrolled leads.
+ */
+export async function applyEnrollmentFromDisposition(enrolledAtByLeadUuid: Map<string, string>): Promise<Set<string>> {
+  const newlyEnrolled = new Set<string>();
   for (const [leadId, enrolledAt] of enrolledAtByLeadUuid) {
-    const { error } = await supabaseAdmin.from('leads').update({ enrolled_at: enrolledAt }).eq('id', leadId).is('enrolled_at', null);
+    const { data, error } = await supabaseAdmin.from('leads').update({ enrolled_at: enrolledAt }).eq('id', leadId).is('enrolled_at', null).select('id');
+    if (error) throw error;
+    if (data && data.length > 0) newlyEnrolled.add(leadId);
+  }
+  return newlyEnrolled;
+}
+
+/**
+ * Auto-fills fee_paid for a lead newly enrolling in EA/CPA (see AttributionMaps.modeFeeByCode) from
+ * its Meritto cf_course_mode text, so Online/Offline leads price differently while still rolling up
+ * into the same EA/CPA course total. Guarded with `.is('fee_paid', null)` for the same reason as
+ * applyEnrollmentFromDisposition's enrolled_at guard - never overwrites a value a user enters
+ * manually via the Enrolled Leads "Edit fee" action.
+ */
+export async function applyAutoFeeFromCourseMode(feeByLeadUuid: Map<string, number>): Promise<void> {
+  for (const [leadId, fee] of feeByLeadUuid) {
+    const { error } = await supabaseAdmin.from('leads').update({ fee_paid: fee }).eq('id', leadId).is('fee_paid', null);
     if (error) throw error;
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAttribution, type AttributionMaps } from '../../../src/repositories/attributionLookupRepo.js';
+import { resolveAttribution, normalizeCourseMode, type AttributionMaps } from '../../../src/repositories/attributionLookupRepo.js';
 
 /**
  * Builds a maps fixture modeling the real bug found live in this account: two campaigns each
@@ -14,6 +14,20 @@ function buildMaps(): AttributionMaps {
     courseIdByCode: new Map([
       ['CPA', 'course-cpa'],
       ['EA', 'course-ea'],
+    ]),
+    courseCodeById: new Map([
+      ['course-cpa', 'CPA'],
+      ['course-ea', 'EA'],
+    ]),
+    modeFeeByCode: new Map([
+      [
+        'EA',
+        new Map([
+          ['ONLINE', 49000],
+          ['OFFLINE', 65000],
+        ]),
+      ],
+      ['CPA', new Map([['ONLINE', 110000]])], // CPA_OFFLINE deliberately unconfigured, for the "missing variant" test below
     ]),
     metaCampaignIdByName: new Map([
       ['campaign a', 'campaign-a-id'],
@@ -119,53 +133,50 @@ describe('resolveAttribution', () => {
     expect(resolved.attributionPlatform).toBe('meta');
   });
 
-  describe('course mode variants (EA/CPA Online vs Offline)', () => {
-    function buildMapsWithVariants(): AttributionMaps {
+  describe('National EA Program (distinguished by source, not by course text)', () => {
+    it('resolves to NATIONAL_EA when source mentions "national ea", even though productCode still just says plain EA', () => {
       const maps = buildMaps();
-      maps.courseIdByCode.set('EA_ONLINE', 'course-ea-online');
-      maps.courseIdByCode.set('EA_OFFLINE', 'course-ea-offline');
-      maps.courseIdByCode.set('CPA_ONLINE', 'course-cpa-online');
-      return maps; // CPA_OFFLINE deliberately left unconfigured, to exercise the "no variant configured" fallback below
-    }
-
-    it('resolves to the specific Online/Offline course when cf_course_mode is unambiguous, case-insensitively', () => {
-      const maps = buildMapsWithVariants();
-
-      expect(resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', courseMode: 'Online', source: 'Organic', campaign: null, adSet: null, creative: null }).courseId).toBe(
-        'course-ea-online',
-      );
-      expect(resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', courseMode: 'offline', source: 'Organic', campaign: null, adSet: null, creative: null }).courseId).toBe(
-        'course-ea-offline',
-      );
-      expect(
-        resolveAttribution(maps, { productCode: 'Certified Public Accountant (US CPA)', courseMode: 'online', source: 'Organic', campaign: null, adSet: null, creative: null }).courseId,
-      ).toBe('course-cpa-online');
-    });
-
-    it('falls back to the plain base course when the matched variant has no configured course row', () => {
-      const maps = buildMapsWithVariants();
-      // CPA_OFFLINE isn't in courseIdByCode here - should land on the generic 'CPA' course, not null.
+      maps.courseIdByCode.set('NATIONAL_EA', 'course-national-ea');
       const resolved = resolveAttribution(maps, {
-        productCode: 'Certified Public Accountant (US CPA)',
-        courseMode: 'Offline',
-        source: 'Organic',
+        productCode: 'Enrolled Agent (EA)', // Meritto's own course field doesn't distinguish National EA - source does
+        source: 'National EA Webhinar',
         campaign: null,
         adSet: null,
         creative: null,
       });
-      expect(resolved.courseId).toBe('course-cpa');
+      expect(resolved.courseId).toBe('course-national-ea');
     });
 
-    it.each(['Both', 'yes', '?????', '', undefined])('falls back to the plain base course when cf_course_mode is ambiguous/garbage (%s)', (courseMode) => {
-      const maps = buildMapsWithVariants();
-      const resolved = resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', courseMode: courseMode ?? null, source: 'Organic', campaign: null, adSet: null, creative: null });
+    it('is case-insensitive on the source text', () => {
+      const maps = buildMaps();
+      maps.courseIdByCode.set('NATIONAL_EA', 'course-national-ea');
+      const resolved = resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', source: 'national ea webhinar', campaign: null, adSet: null, creative: null });
+      expect(resolved.courseId).toBe('course-national-ea');
+    });
+
+    it('falls back to the plain EA course when source mentions "national ea" but no NATIONAL_EA course is configured yet', () => {
+      const maps = buildMaps(); // no NATIONAL_EA in courseIdByCode
+      const resolved = resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', source: 'National EA Webhinar', campaign: null, adSet: null, creative: null });
       expect(resolved.courseId).toBe('course-ea');
     });
 
-    it('still resolves the plain base course when courseMode is omitted entirely (optional field)', () => {
-      const maps = buildMapsWithVariants();
+    it('a regular EA lead (no "national ea" in source) still resolves to the plain EA course', () => {
+      const maps = buildMaps();
+      maps.courseIdByCode.set('NATIONAL_EA', 'course-national-ea');
       const resolved = resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', source: 'Organic', campaign: null, adSet: null, creative: null });
       expect(resolved.courseId).toBe('course-ea');
+    });
+  });
+
+  describe('normalizeCourseMode', () => {
+    it('reads an unambiguous single mode case-insensitively', () => {
+      expect(normalizeCourseMode('Online')).toBe('ONLINE');
+      expect(normalizeCourseMode('online')).toBe('ONLINE');
+      expect(normalizeCourseMode('Offline')).toBe('OFFLINE');
+    });
+
+    it.each(['Both', 'yes', '?????', '', null])('returns null for ambiguous/garbage/blank text (%s)', (courseMode) => {
+      expect(normalizeCourseMode(courseMode)).toBeNull();
     });
   });
 

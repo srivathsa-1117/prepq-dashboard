@@ -12,6 +12,17 @@ import { supabaseAdmin } from '../database/supabaseClient.js';
  */
 export interface AttributionMaps {
   courseIdByCode: Map<string, string>;
+  /** Reverse of courseIdByCode (id -> normalized code) - lets the sync look up "what course is
+   * this lead in" by code after course_id resolution, for the mode-aware fee lookup below. */
+  courseCodeById: Map<string, string>;
+  /**
+   * Fee lookup only - NOT used to resolve a lead's course_id (see resolveCourseId's doc comment).
+   * Built from the client's "EA Online"/"EA Offline"/"CPA Online"/"CPA Offline" course rows (code
+   * `${BASE}_ONLINE`/`${BASE}_OFFLINE`, status 'inactive' so they never appear as a pickable course
+   * - see reportingRepo.ts::getFilterOptions), added 2026-11-13 so EA/CPA revenue can be priced
+   * differently by course mode while still rolling up into the one EA/CPA course total.
+   */
+  modeFeeByCode: Map<string, Map<'ONLINE' | 'OFFLINE', number>>;
   metaCampaignIdByName: Map<string, string>;
   /** Keyed by `${campaign}|${adset}` - see the module doc comment on why adset name alone isn't unique. */
   metaAdSetIdByCompoundKey: Map<string, string>;
@@ -85,9 +96,43 @@ async function fetchAllRows<
   return rows;
 }
 
+interface CourseFeeRow {
+  id: string;
+  code: string | null;
+  fee: number | null;
+}
+
+/** Separate from fetchAllRows above since `fee` is numeric, not the string-only shape that generic helper assumes. */
+async function fetchAllCourseRows(clientId: string): Promise<CourseFeeRow[]> {
+  const rows: CourseFeeRow[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from('courses')
+      .select('id, code, fee')
+      .eq('client_id', clientId)
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as CourseFeeRow[]));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+/**
+ * Parses an Online/Offline fee-reference course's code (e.g. "EA_ONLINE") into its base code and
+ * mode, for modeFeeByCode. Returns null for any other code shape (the 3 real courses, or anything
+ * else) - this is purely a naming convention for the fee-reference rows, not enforced by schema.
+ */
+function parseVariantCode(code: string): { base: string; mode: 'ONLINE' | 'OFFLINE' } | null {
+  const match = /^(.+)_(ONLINE|OFFLINE)$/.exec(code);
+  if (!match) return null;
+  return { base: match[1]!, mode: match[2] as 'ONLINE' | 'OFFLINE' };
+}
+
 export async function loadAttributionMaps(clientId: string): Promise<AttributionMaps> {
   const [courses, metaCampaigns, metaAdSets, metaAds, googleCampaigns, googleAdGroups, googleAds, creativeAds] = await Promise.all([
-    fetchAllRows('courses', 'id, code', clientId),
+    fetchAllCourseRows(clientId),
     fetchAllRows('meta_campaigns', 'id, name', clientId),
     fetchAllRows('meta_adsets', 'id, name, campaign_id', clientId),
     fetchAllRows('meta_ads', 'id, name, campaign_id, adset_id', clientId),
@@ -144,10 +189,23 @@ export async function loadAttributionMaps(clientId: string): Promise<Attribution
     if (row.google_ad_id) creativeIdByGoogleAdId.set(row.google_ad_id, row.creative_id);
   }
 
+  const validCourses = courses.filter((c): c is CourseFeeRow & { code: string } => typeof c.code === 'string');
+  const courseIdByCode = new Map(validCourses.map((c) => [c.code.trim().toUpperCase(), c.id]));
+  const courseCodeById = new Map(validCourses.map((c) => [c.id, c.code.trim().toUpperCase()]));
+
+  const modeFeeByCode = new Map<string, Map<'ONLINE' | 'OFFLINE', number>>();
+  for (const c of validCourses) {
+    if (c.fee === null) continue;
+    const variant = parseVariantCode(c.code.trim().toUpperCase());
+    if (!variant) continue;
+    if (!modeFeeByCode.has(variant.base)) modeFeeByCode.set(variant.base, new Map());
+    modeFeeByCode.get(variant.base)!.set(variant.mode, c.fee);
+  }
+
   return {
-    courseIdByCode: new Map(
-      courses.filter((c): c is { id: string; code: string } => typeof c.code === 'string').map((c) => [c.code.trim().toUpperCase(), c.id]),
-    ),
+    courseIdByCode,
+    courseCodeById,
+    modeFeeByCode,
     metaCampaignIdByName,
     metaAdSetIdByCompoundKey,
     metaAdIdByCompoundKey,
@@ -179,10 +237,13 @@ export interface ResolvedAttribution {
 /**
  * cf_course_mode is a free-text custom field in Meritto, not a clean dropdown - live-confirmed
  * real values include "Online", "online", "Offline", "Both", "yes", "?????", and blank. Only an
- * unambiguous single mode is usable for automatic course-variant resolution; "Both"/garbage/blank
- * fall through to the generic (non-variant) course match below instead of guessing.
+ * unambiguous single mode is usable; "Both"/garbage/blank return null rather than guessing.
+ * Exported for sync/meritto/merittoSync.ts's mode-aware fee lookup at enrollment time (see
+ * AttributionMaps.modeFeeByCode's doc comment) - course_id resolution itself never uses this
+ * (resolveCourseId below is mode-agnostic by design, per the client's 2026-11-13 request to keep
+ * Online/Offline leads under the same course total).
  */
-function normalizeCourseMode(courseMode: string | null): 'ONLINE' | 'OFFLINE' | null {
+export function normalizeCourseMode(courseMode: string | null): 'ONLINE' | 'OFFLINE' | null {
   const mode = (courseMode ?? '').trim().toLowerCase();
   const hasOnline = mode.includes('online');
   const hasOffline = mode.includes('offline');
@@ -199,29 +260,11 @@ function normalizeCourseMode(courseMode: string | null): 'ONLINE' | 'OFFLINE' | 
  * code alone, so an exact-match-only lookup left course_id null for every single lead (verified:
  * 0/980 leads had it set). Word-boundary regex, not a plain substring check, so a short code
  * like "EA" can't false-positive match inside an unrelated longer word.
- *
- * Before any of that, tries a course+mode variant match first (e.g. productCode "Enrolled Agent
- * (EA)" + courseMode "Online" -> code "EA_ONLINE") per the client's 2026-11-13 request to price
- * Online/Offline separately - only when the base course (EA/CPA) is unambiguous AND cf_course_mode
- * resolves to exactly one mode (see normalizeCourseMode). Falls through to the generic match
- * (landing on the plain "EA"/"CPA" course) whenever the variant isn't configured or the mode is
- * unreadable - never blocks resolution just because the mode field is messy.
  */
-function resolveCourseId(courseIdByCode: Map<string, string>, productCode: string | null, courseMode: string | null = null): string | null {
+function resolveCourseId(courseIdByCode: Map<string, string>, productCode: string | null): string | null {
   if (!productCode) return null;
   const normalized = productCode.trim().toUpperCase();
   if (!normalized) return null;
-
-  const mode = normalizeCourseMode(courseMode);
-  if (mode) {
-    for (const base of ['EA', 'CPA']) {
-      if (new RegExp(`\\b${base}\\b`).test(normalized)) {
-        const variantId = courseIdByCode.get(`${base}_${mode}`);
-        if (variantId) return variantId;
-        break;
-      }
-    }
-  }
 
   const exact = courseIdByCode.get(normalized);
   if (exact) return exact;
@@ -244,9 +287,17 @@ function resolveCourseId(courseIdByCode: Map<string, string>, productCode: strin
  */
 export function resolveAttribution(
   maps: AttributionMaps,
-  input: { productCode: string | null; courseMode?: string | null; source: string | null; campaign: string | null; adSet: string | null; creative: string | null },
+  input: { productCode: string | null; source: string | null; campaign: string | null; adSet: string | null; creative: string | null },
 ): ResolvedAttribution {
-  const courseId = resolveCourseId(maps.courseIdByCode, input.productCode, input.courseMode ?? null);
+  // "National EA Program" is a distinct lead-gen funnel (source "National EA Webhinar"), not a
+  // distinct value of Meritto's own `course` field - that field still just says "Enrolled Agent
+  // (EA)" for these leads, same as regular EA leads, so it can't be told apart by productCode
+  // alone. Source is the only real signal; checked before the generic productCode match below.
+  // Falls through to that generic match if this account doesn't have a NATIONAL_EA course configured.
+  const courseId =
+    (input.source ?? '').toLowerCase().includes('national ea') && maps.courseIdByCode.has('NATIONAL_EA')
+      ? maps.courseIdByCode.get('NATIONAL_EA')!
+      : resolveCourseId(maps.courseIdByCode, input.productCode);
 
   const sourceLower = (input.source ?? '').toLowerCase();
   const isMeta = sourceLower.includes('meta') || sourceLower.includes('facebook') || sourceLower.includes('instagram');

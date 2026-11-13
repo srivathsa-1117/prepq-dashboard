@@ -716,10 +716,20 @@ async function getDistinctSources(clientId: string): Promise<string[]> {
   return Array.from(sources).sort();
 }
 
-/** Powers CourseFilter/SourceFilter option lists - courses are the client's canonical list, sources are distinct values actually seen on leads (never a hardcoded list, since source taxonomy is client-configured). */
+/**
+ * Powers CourseFilter/SourceFilter option lists - courses are the client's canonical list, sources
+ * are distinct values actually seen on leads (never a hardcoded list, since source taxonomy is
+ * client-configured).
+ *
+ * `status = 'active'` excludes the Online/Offline fee-reference rows (e.g. "EA Online", "EA
+ * Offline") added 2026-11-13 for mode-aware revenue - those exist purely so the correct fee is
+ * looked up at enrollment time (see attributionLookupRepo.ts's modeFeeByCode), and are never a
+ * real lead's course_id, so they must never appear as a pickable course here or in the
+ * course-assignment dropdown (EnrolledLeadsRevenue.tsx), which both read this same list.
+ */
 export async function getFilterOptions(clientId: string) {
   const [coursesResult, sources] = await Promise.all([
-    supabaseAdmin.from('courses').select('id, code, name').eq('client_id', clientId).order('name'),
+    supabaseAdmin.from('courses').select('id, code, name').eq('client_id', clientId).eq('status', 'active').order('name'),
     getDistinctSources(clientId),
   ]);
   if (coursesResult.error) throw coursesResult.error;

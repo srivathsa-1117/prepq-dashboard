@@ -6,12 +6,13 @@ import {
   upsertMerittoPayments,
   applyEnrollmentFromPayments,
   applyEnrollmentFromDisposition,
+  applyAutoFeeFromCourseMode,
   getPersistedCallActivityHistory,
   getPersistedRegistrationTimestamps,
   type LeadUpsertInput,
 } from '../../repositories/merittoRepo.js';
 import { listLeadStatusRules } from '../../repositories/leadStatusRulesRepo.js';
-import { loadAttributionMaps, resolveAttribution } from '../../repositories/attributionLookupRepo.js';
+import { loadAttributionMaps, resolveAttribution, normalizeCourseMode } from '../../repositories/attributionLookupRepo.js';
 import { getOrCreateSalesRepsByName, loadMerittoOwnerNames } from '../../repositories/salesRepsRepo.js';
 import { MerittoClient, type MerittoCredentials } from '../../integrations/meritto/merittoClient.js';
 import {
@@ -151,7 +152,6 @@ export async function syncMerittoForClient(params: SyncJobParams) {
 
           const attribution = resolveAttribution(attributionMaps, {
             productCode: normalized.productCode,
-            courseMode: normalized.courseMode,
             source: normalized.source,
             campaign: normalized.campaign,
             adSet: normalized.adSet,
@@ -179,6 +179,7 @@ export async function syncMerittoForClient(params: SyncJobParams) {
 
       let leadIdMap = firstPassLeadIdMap;
       let enrolledMerittoLeadIds = firstPass.enrolledMerittoLeadIds;
+      let finalLeadInputs = firstPass.leadInputs;
       let activitiesByLead = new Map<string, NormalizedMerittoActivity[]>();
 
       // Second pass: best-effort. A failure here (this account's activity-by-date-range endpoint
@@ -212,6 +213,7 @@ export async function syncMerittoForClient(params: SyncJobParams) {
 
         const secondPass = buildLeadInputs(activitiesByLead);
         enrolledMerittoLeadIds = secondPass.enrolledMerittoLeadIds;
+        finalLeadInputs = secondPass.leadInputs;
 
         const { idByPlatformId: secondPassLeadIdMap, counts: secondPassCounts } = await upsertMerittoLeads(params.clientId, secondPass.leadInputs);
         leadIdMap = secondPassLeadIdMap;
@@ -252,8 +254,30 @@ export async function syncMerittoForClient(params: SyncJobParams) {
         );
         enrolledAtCandidates.set(leadId, mostRecentActivityAt ?? nowIso);
       }
-      if (enrolledAtCandidates.size > 0) {
-        await applyEnrollmentFromDisposition(enrolledAtCandidates);
+      const newlyEnrolledLeadIds = enrolledAtCandidates.size > 0 ? await applyEnrollmentFromDisposition(enrolledAtCandidates) : new Set<string>();
+
+      // Mode-aware fee, scoped to leads genuinely enrolling for the first time just now
+      // (newlyEnrolledLeadIds, not every currently-"Enrolled" lead this run resubmits) per the
+      // client's explicit "today onward" framing - never backfilled onto a lead that already
+      // enrolled before this logic existed. Only EA/CPA have Online/Offline variants configured
+      // (modeFeeByCode); National EA Program and anything else just use their course's own flat
+      // fee via the existing effectiveFee() fallback, unaffected by this.
+      const leadInputByMerittoId = new Map(finalLeadInputs.map((li) => [li.normalized.merittoLeadId, li]));
+      const feeCandidates = new Map<string, number>();
+      for (const merittoLeadId of enrolledMerittoLeadIds) {
+        const leadId = leadIdMap.get(merittoLeadId);
+        if (!leadId || !newlyEnrolledLeadIds.has(leadId)) continue;
+        const input = leadInputByMerittoId.get(merittoLeadId);
+        if (!input) continue;
+        const courseCode = input.attribution.courseId ? attributionMaps.courseCodeById.get(input.attribution.courseId) : undefined;
+        if (!courseCode) continue;
+        const mode = normalizeCourseMode(input.normalized.courseMode);
+        if (!mode) continue;
+        const fee = attributionMaps.modeFeeByCode.get(courseCode)?.get(mode);
+        if (fee !== undefined) feeCandidates.set(leadId, fee);
+      }
+      if (feeCandidates.size > 0) {
+        await applyAutoFeeFromCourseMode(feeCandidates);
       }
 
       // Payments API isn't wired up yet for this account (needs form_id/product_id enumeration
