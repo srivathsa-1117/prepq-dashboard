@@ -507,10 +507,18 @@ export function salesTeamBreakdown(rangedLeads: LeadRow[], uncalledLeads: LeadRo
     const enrolled = countEnrolled(assigned);
     const uncalledOver24h = uncalledLeads.filter((l) => l.owner === owner && hoursBetween(l.created_at, now.toISOString()) >= 24).length;
 
+    // Same exclusion speedToLead already applies and explains in its own doc comment: created_at
+    // is day-granularity (reconstructed from a whole-day lead_age, not a real timestamp - see
+    // deriveCreatedAtFromLeadAge), so a same-day call can diff out negative against it. Without this
+    // filter a single such lead dominates median() on a small per-owner sample - live-confirmed
+    // (post-2026-11-13 owner-mapping fix) a rep with only 2 EA leads showed a median response of
+    // "-56115m" once their bucket was correctly small enough for one bad data point to control it.
+    const timeableHours = called.map((l) => hoursBetween(l.created_at, l.first_call_at!)).filter((h) => h >= 0);
+
     return {
       owner,
       leadsAssigned: assigned.length,
-      medianResponseHours: median(called.map((l) => hoursBetween(l.created_at, l.first_call_at!))),
+      medianResponseHours: median(timeableHours),
       uncalledOver24h,
       connected,
       qualified,
