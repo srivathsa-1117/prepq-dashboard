@@ -482,7 +482,7 @@ export async function getSourcePerformance(clientId: string, from: string, to: s
  * Fatigue is always "as of now" (trailing 14d vs preceding 14d), independent of the dashboard's
  * date-range filter - sourced from the live project's own v_creative_performance view.
  *
- * Scoped by client_id alone, not also `.in('creative_id', creativeIds)` - the view is already
+ * Scoped by client_id alone, not also `.not('creative_id', 'is', null)` - the view is already
  * client-scoped, so that filter was redundant, and live-tested, an .in() with this client's real
  * ad volume (400+ ids) builds a URL long enough to fail at the connection level. The caller just
  * does map.get(id) per creative, so a few unused extra rows in the map are harmless.
@@ -774,6 +774,16 @@ export async function getCampaignAds(clientId: string, platform: 'meta' | 'googl
  * campaign-row-merge fixes). adIds are already-resolved internal meta_ads.id/google_ads.id values
  * (leads.meta_ad_id/google_ad_id's FK target), matching what fn_campaign_ads itself returns as
  * ad_id, so no extra lookup is needed to line them up.
+ *
+ * Deliberately does NOT filter the query by `.in(column, adIds)` - adIds is only used for the
+ * empty-input short-circuit above and is otherwise just the caller's lookup key set. Real bug hit
+ * live: the creative-level sibling of this function (getNotReachableCountByCreative) did filter by
+ * id list, and with this account's 534 creatives that produced a ~20,000-character IN-list that
+ * PostgREST's GET request couldn't carry, failing every request with an opaque "fetch failed" (no
+ * HTTP status, since the request itself couldn't be sent) and breaking the entire Creatives page.
+ * adIds here is bounded per-campaign today and wouldn't hit that limit yet, but there's no reason
+ * to carry the same latent landmine - scanning by date+status without restricting to specific ids
+ * is just as correct (callers only ever do `.get(id) ?? 0`) and has no id-count ceiling.
  */
 export async function getEnrolledCountByAdId(
   clientId: string,
@@ -792,7 +802,7 @@ export async function getEnrolledCountByAdId(
       .from('leads')
       .select(column)
       .eq('client_id', clientId)
-      .in(column, adIds)
+      .not(column, 'is', null)
       .gte('created_at', `${from}T00:00:00.000Z`)
       .lte('created_at', `${to}T23:59:59.999Z`)
       .not('enrolled_at', 'is', null)
@@ -814,6 +824,11 @@ export async function getEnrolledCountByAdId(
  * application-layer approach (and exact structure) as getEnrolledCountByAdId above. campaignIds are
  * the internal meta_campaigns.id/google_campaigns.id values the campaign RPCs already return,
  * matching leads.meta_campaign_id/google_campaign_id's FK target.
+ *
+ * No `.in(column, campaignIds)` filter, same reasoning as getEnrolledCountByAdId's doc comment -
+ * campaignIds is only the empty-input short-circuit + the caller's lookup keys. Campaign counts are
+ * small enough today that this specific function never hit the URL-length failure live, but it's
+ * the same landmine, so fixed the same way rather than leaving it for a bigger account to trip.
  */
 export async function getNotReachableCountByCampaign(
   clientId: string,
@@ -832,7 +847,7 @@ export async function getNotReachableCountByCampaign(
       .from('leads')
       .select(column)
       .eq('client_id', clientId)
-      .in(column, campaignIds)
+      .not(column, 'is', null)
       .eq('status', 'not_reachable')
       .gte('created_at', `${from}T00:00:00.000Z`)
       .lte('created_at', `${to}T23:59:59.999Z`)
@@ -851,6 +866,12 @@ export async function getNotReachableCountByCampaign(
 /**
  * Same as getNotReachableCountByCampaign, but per creative - leads.creative_id is a single
  * platform-agnostic column (no meta/google split needed, unlike campaign/ad ids).
+ *
+ * No `.not('creative_id', 'is', null)` filter - this is the function that actually broke the
+ * Creatives page live: this account has 534 creatives, and a ~20,000-character IN-list in the
+ * query URL made every request fail with a generic "fetch failed" (PostgREST couldn't even receive
+ * the GET request, so there was no HTTP status to surface). See getEnrolledCountByAdId's doc
+ * comment for the full writeup - same fix, scan by date+status only and let callers look up by id.
  */
 export async function getNotReachableCountByCreative(
   clientId: string,
@@ -867,7 +888,7 @@ export async function getNotReachableCountByCreative(
       .from('leads')
       .select('creative_id')
       .eq('client_id', clientId)
-      .in('creative_id', creativeIds)
+      .not('creative_id', 'is', null)
       .eq('status', 'not_reachable')
       .gte('created_at', `${from}T00:00:00.000Z`)
       .lte('created_at', `${to}T23:59:59.999Z`)
