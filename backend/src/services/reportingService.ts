@@ -158,16 +158,22 @@ export async function getOverview(req: ResolvedRequest) {
   const revenue = sumEnrolledRevenue(leads, feeMap);
 
   const pacing = currentMonthPacing(req.timezone);
-  const monthLeads = await getLeadsCreatedInRange(req.clientId, pacing.monthStart, pacing.today, req.filters);
   const targets = await getTargetsForMonth(req.clientId, pacing.monthStart);
-  const scopedTargets = req.filters.courseId ? targets.filter((t) => t.course_id === req.filters.courseId) : targets;
-  const totalTarget = scopedTargets.reduce((sum, t) => sum + t.lead_target, 0);
+  const totalTarget = targets.reduce((sum, t) => sum + t.lead_target, 0);
 
-  // Same monthLeads dataset as targetPacing above, just broken out per metric so every target
-  // type set in the targets table (not just lead_target) gets a real actual-vs-target comparison
-  // - qualified_target/enrollment_target/revenue_target existed in the schema but nothing read
-  // them until now.
-  const targetTotals = scopedTargets.reduce(
+  // "Targets (this month)" and targetPacing are the client's single overall-pacing widget - they
+  // always reflect the combined total across every course, never narrowed to whichever course the
+  // Course filter happens to be set to (feedback 2026-11-13: it previously showed one course's
+  // target/actual and looked like the account total, while "Targets by course" right below it
+  // showed the real per-course split - two widgets that looked like they disagreed). Still respects
+  // every OTHER active filter (platform/source) - only courseId is deliberately dropped here.
+  const allCourseMonthLeads = await getLeadsCreatedInRange(req.clientId, pacing.monthStart, pacing.today, { ...req.filters, courseId: undefined });
+
+  // Same allCourseMonthLeads dataset as targetPacing above, just broken out per metric so every
+  // target type set in the targets table (not just lead_target) gets a real actual-vs-target
+  // comparison - qualified_target/enrollment_target/revenue_target existed in the schema but
+  // nothing read them until now.
+  const targetTotals = targets.reduce(
     (acc, t) => ({
       leads: acc.leads + t.lead_target,
       qualified: acc.qualified + t.qualified_target,
@@ -179,19 +185,15 @@ export async function getOverview(req: ResolvedRequest) {
   const monthlyTargets =
     targetTotals.leads + targetTotals.qualified + targetTotals.enrolled + targetTotals.revenue > 0
       ? {
-          leads: { target: targetTotals.leads, actual: monthLeads.length },
-          qualified: { target: targetTotals.qualified, actual: monthLeads.filter((l) => l.status === 'qualified').length },
-          enrolled: { target: targetTotals.enrolled, actual: calc.countEnrolled(monthLeads) },
-          revenue: { target: targetTotals.revenue, actual: sumEnrolledRevenue(monthLeads, feeMap) },
+          leads: { target: targetTotals.leads, actual: allCourseMonthLeads.length },
+          qualified: { target: targetTotals.qualified, actual: allCourseMonthLeads.filter((l) => l.status === 'qualified').length },
+          enrolled: { target: targetTotals.enrolled, actual: calc.countEnrolled(allCourseMonthLeads) },
+          revenue: { target: targetTotals.revenue, actual: sumEnrolledRevenue(allCourseMonthLeads, feeMap) },
         }
       : null;
 
-  // Targets by course (their feedback #6: "Segregate targets by course"). monthLeads is already
-  // unscoped when no course filter is active - only issue the extra query when a course filter
-  // is currently narrowing monthLeads, so per-course actuals aren't limited to that one course.
-  const allCourseMonthLeads = req.filters.courseId
-    ? await getLeadsCreatedInRange(req.clientId, pacing.monthStart, pacing.today, { ...req.filters, courseId: undefined })
-    : monthLeads;
+  // Targets by course (their feedback #6: "Segregate targets by course") - same allCourseMonthLeads
+  // dataset, just grouped by course_id instead of summed across all of them.
   const courses = await getCourseFees(req.clientId);
   const courseNameMap = new Map(courses.map((c) => [c.id, c.name]));
   const leadsByCourse = new Map<string, LeadRow[]>();
@@ -233,7 +235,7 @@ export async function getOverview(req: ResolvedRequest) {
       totalTarget > 0
         ? calc.targetPacing({
             target: totalTarget,
-            actualMtdLeads: monthLeads.length,
+            actualMtdLeads: allCourseMonthLeads.length,
             dayOfMonth: pacing.dayOfMonth,
             daysInMonth: pacing.daysInMonth,
             daysRemaining: pacing.daysRemaining,
