@@ -10,7 +10,7 @@ import { chartColor } from '@/lib/utils/colors';
 
 const BUCKET_COLOR: Record<string, string> = { '<24h': chartColor.good, '24-48h': chartColor.warning, '>48h': chartColor.critical };
 
-/** Uncalled lead queue is a live backlog, deliberately not affected by the date range filter (spec §15). */
+/** Uncalled lead queue now respects the page's date range filter (see reportingRepo.ts::getUncalledLeads) - only leads created within the selected range. */
 export function AgingBuckets({ filters }: { filters: DashboardFilterState }) {
   const { selectedClientId } = useOrgClient();
   const query = useSales(selectedClientId, filters);

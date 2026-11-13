@@ -26,7 +26,7 @@ const COLUMNS: Array<{ key: SortKey; label: string; align?: 'right'; title?: str
     key: 'uncalledOver24h',
     label: '>24h uncalled',
     align: 'right',
-    title: "This owner's entire current backlog of never-called leads older than 24h - live, all-time, not limited to the selected date range. Can exceed \"Assigned\" for that reason.",
+    title: "This owner's never-called leads older than 24h, among leads created within the selected date range - same window as \"Assigned\".",
   },
   { key: 'connected', label: 'Connected', align: 'right' },
   { key: 'qualified', label: 'Qualified', align: 'right' },
@@ -34,7 +34,7 @@ const COLUMNS: Array<{ key: SortKey; label: string; align?: 'right'; title?: str
   { key: 'leadToEnrolmentRate', label: 'Lead→Enrol.', align: 'right' },
 ];
 
-/** uncalledOver24h comes from the live queue, not the ranged leads - see backend salesTeamBreakdown. Default sort matches its prior fixed order (lead-to-enrolment rate descending); click any header to re-sort. */
+/** uncalledOver24h now comes from the same date-range-scoped queue as the rest of this table (see reportingRepo.ts::getUncalledLeads) - no longer an all-time backlog. Default sort matches its prior fixed order (lead-to-enrolment rate descending); click any header to re-sort. */
 export function SalesTeamTable({ filters }: { filters: DashboardFilterState }) {
   const { selectedClientId } = useOrgClient();
   const query = useSales(selectedClientId, filters);

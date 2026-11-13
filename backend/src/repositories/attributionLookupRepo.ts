@@ -177,6 +177,21 @@ export interface ResolvedAttribution {
 }
 
 /**
+ * cf_course_mode is a free-text custom field in Meritto, not a clean dropdown - live-confirmed
+ * real values include "Online", "online", "Offline", "Both", "yes", "?????", and blank. Only an
+ * unambiguous single mode is usable for automatic course-variant resolution; "Both"/garbage/blank
+ * fall through to the generic (non-variant) course match below instead of guessing.
+ */
+function normalizeCourseMode(courseMode: string | null): 'ONLINE' | 'OFFLINE' | null {
+  const mode = (courseMode ?? '').trim().toLowerCase();
+  const hasOnline = mode.includes('online');
+  const hasOffline = mode.includes('offline');
+  if (hasOnline && !hasOffline) return 'ONLINE';
+  if (hasOffline && !hasOnline) return 'OFFLINE';
+  return null;
+}
+
+/**
  * Matches a lead's raw course text against known course codes. Tries an exact match first
  * (cheap, and correct for accounts where the field really is just the bare code), then falls
  * back to a whole-word search within a longer descriptive name - this account's real Meritto
@@ -184,11 +199,29 @@ export interface ResolvedAttribution {
  * code alone, so an exact-match-only lookup left course_id null for every single lead (verified:
  * 0/980 leads had it set). Word-boundary regex, not a plain substring check, so a short code
  * like "EA" can't false-positive match inside an unrelated longer word.
+ *
+ * Before any of that, tries a course+mode variant match first (e.g. productCode "Enrolled Agent
+ * (EA)" + courseMode "Online" -> code "EA_ONLINE") per the client's 2026-11-13 request to price
+ * Online/Offline separately - only when the base course (EA/CPA) is unambiguous AND cf_course_mode
+ * resolves to exactly one mode (see normalizeCourseMode). Falls through to the generic match
+ * (landing on the plain "EA"/"CPA" course) whenever the variant isn't configured or the mode is
+ * unreadable - never blocks resolution just because the mode field is messy.
  */
-function resolveCourseId(courseIdByCode: Map<string, string>, productCode: string | null): string | null {
+function resolveCourseId(courseIdByCode: Map<string, string>, productCode: string | null, courseMode: string | null = null): string | null {
   if (!productCode) return null;
   const normalized = productCode.trim().toUpperCase();
   if (!normalized) return null;
+
+  const mode = normalizeCourseMode(courseMode);
+  if (mode) {
+    for (const base of ['EA', 'CPA']) {
+      if (new RegExp(`\\b${base}\\b`).test(normalized)) {
+        const variantId = courseIdByCode.get(`${base}_${mode}`);
+        if (variantId) return variantId;
+        break;
+      }
+    }
+  }
 
   const exact = courseIdByCode.get(normalized);
   if (exact) return exact;
@@ -211,9 +244,9 @@ function resolveCourseId(courseIdByCode: Map<string, string>, productCode: strin
  */
 export function resolveAttribution(
   maps: AttributionMaps,
-  input: { productCode: string | null; source: string | null; campaign: string | null; adSet: string | null; creative: string | null },
+  input: { productCode: string | null; courseMode?: string | null; source: string | null; campaign: string | null; adSet: string | null; creative: string | null },
 ): ResolvedAttribution {
-  const courseId = resolveCourseId(maps.courseIdByCode, input.productCode);
+  const courseId = resolveCourseId(maps.courseIdByCode, input.productCode, input.courseMode ?? null);
 
   const sourceLower = (input.source ?? '').toLowerCase();
   const isMeta = sourceLower.includes('meta') || sourceLower.includes('facebook') || sourceLower.includes('instagram');

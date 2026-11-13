@@ -79,6 +79,7 @@ export function transformLead(raw: MerittoLead, timezone: string, now: Date = ne
     email: raw.email ?? null,
     phone: raw.mobile ?? null,
     productCode: raw.course ?? null,
+    courseMode: raw.cf_course_mode ?? null,
     source: normalizeSourceLabel(raw.source),
     campaign: raw.cf_campaign_name ?? raw.campaign ?? null,
     adSet: raw.cf_ad_set_name ?? null,

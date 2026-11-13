@@ -123,10 +123,24 @@ export async function getLeadsCreatedInRange(
   });
 }
 
-/** Uncalled queue - deliberately NOT range-filtered, it's a live backlog (spec §15). */
-export async function getUncalledLeads(clientId: string, filters: LeadQueryFilters = {}): Promise<LeadRow[]> {
+/**
+ * Uncalled queue, scoped to leads created within [from, to] - same range as every other Sales-page
+ * widget. Originally this was deliberately NOT range-filtered (an all-time live backlog per the
+ * original spec), but that made "Uncalled" and "Assigned"/"Qualified" incomparable on the same
+ * page: a team member could show far more "uncalled" (all-time) than "assigned" (range-filtered),
+ * which read as a data bug rather than just two different time windows. Changed 2026-11-13 per the
+ * client's own request to make Uncalled Aging and the Sales Team "uncalled" column respect the
+ * page's date range like everything else does.
+ */
+export async function getUncalledLeads(clientId: string, from: string, to: string, filters: LeadQueryFilters = {}): Promise<LeadRow[]> {
   return fetchAllLeadRows(() => {
-    let query = supabaseAdmin.from('leads').select(LEAD_SELECT).eq('client_id', clientId).eq('call_attempts', 0);
+    let query = supabaseAdmin
+      .from('leads')
+      .select(LEAD_SELECT)
+      .eq('client_id', clientId)
+      .eq('call_attempts', 0)
+      .gte('created_at', `${from}T00:00:00.000Z`)
+      .lte('created_at', `${to}T23:59:59.999Z`);
     if (filters.courseId) query = query.eq('course_id', filters.courseId);
     if (filters.source) query = query.eq('source', filters.source);
     if (filters.campaignFilter) query = query.eq(filters.campaignFilter.column, filters.campaignFilter.id);

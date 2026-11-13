@@ -151,6 +151,7 @@ export async function syncMerittoForClient(params: SyncJobParams) {
 
           const attribution = resolveAttribution(attributionMaps, {
             productCode: normalized.productCode,
+            courseMode: normalized.courseMode,
             source: normalized.source,
             campaign: normalized.campaign,
             adSet: normalized.adSet,

@@ -119,6 +119,56 @@ describe('resolveAttribution', () => {
     expect(resolved.attributionPlatform).toBe('meta');
   });
 
+  describe('course mode variants (EA/CPA Online vs Offline)', () => {
+    function buildMapsWithVariants(): AttributionMaps {
+      const maps = buildMaps();
+      maps.courseIdByCode.set('EA_ONLINE', 'course-ea-online');
+      maps.courseIdByCode.set('EA_OFFLINE', 'course-ea-offline');
+      maps.courseIdByCode.set('CPA_ONLINE', 'course-cpa-online');
+      return maps; // CPA_OFFLINE deliberately left unconfigured, to exercise the "no variant configured" fallback below
+    }
+
+    it('resolves to the specific Online/Offline course when cf_course_mode is unambiguous, case-insensitively', () => {
+      const maps = buildMapsWithVariants();
+
+      expect(resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', courseMode: 'Online', source: 'Organic', campaign: null, adSet: null, creative: null }).courseId).toBe(
+        'course-ea-online',
+      );
+      expect(resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', courseMode: 'offline', source: 'Organic', campaign: null, adSet: null, creative: null }).courseId).toBe(
+        'course-ea-offline',
+      );
+      expect(
+        resolveAttribution(maps, { productCode: 'Certified Public Accountant (US CPA)', courseMode: 'online', source: 'Organic', campaign: null, adSet: null, creative: null }).courseId,
+      ).toBe('course-cpa-online');
+    });
+
+    it('falls back to the plain base course when the matched variant has no configured course row', () => {
+      const maps = buildMapsWithVariants();
+      // CPA_OFFLINE isn't in courseIdByCode here - should land on the generic 'CPA' course, not null.
+      const resolved = resolveAttribution(maps, {
+        productCode: 'Certified Public Accountant (US CPA)',
+        courseMode: 'Offline',
+        source: 'Organic',
+        campaign: null,
+        adSet: null,
+        creative: null,
+      });
+      expect(resolved.courseId).toBe('course-cpa');
+    });
+
+    it.each(['Both', 'yes', '?????', '', undefined])('falls back to the plain base course when cf_course_mode is ambiguous/garbage (%s)', (courseMode) => {
+      const maps = buildMapsWithVariants();
+      const resolved = resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', courseMode: courseMode ?? null, source: 'Organic', campaign: null, adSet: null, creative: null });
+      expect(resolved.courseId).toBe('course-ea');
+    });
+
+    it('still resolves the plain base course when courseMode is omitted entirely (optional field)', () => {
+      const maps = buildMapsWithVariants();
+      const resolved = resolveAttribution(maps, { productCode: 'Enrolled Agent (EA)', source: 'Organic', campaign: null, adSet: null, creative: null });
+      expect(resolved.courseId).toBe('course-ea');
+    });
+  });
+
   it('leaves everything platform-related null for a source that is neither Meta nor Google', () => {
     const maps = buildMaps();
     const resolved = resolveAttribution(maps, {

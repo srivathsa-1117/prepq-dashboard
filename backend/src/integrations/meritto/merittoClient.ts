@@ -51,6 +51,7 @@ const MERITTO_LEAD_FIELDS = [
   'cf_ad_name',
   'cf_ad_set_name',
   'cf_campaign_name',
+  'cf_course_mode',
   'total_outbound',
   'outbound_success',
 ];

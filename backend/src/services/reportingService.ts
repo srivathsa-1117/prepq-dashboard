@@ -353,7 +353,7 @@ export async function getFunnel(req: ResolvedRequest) {
 export async function getSales(req: ResolvedRequest) {
   const [rangedLeads, uncalled, cohortLeads] = await Promise.all([
     getLeadsCreatedInRange(req.clientId, req.range.from, req.range.to, req.filters),
-    getUncalledLeads(req.clientId, req.filters),
+    getUncalledLeads(req.clientId, req.range.from, req.range.to, req.filters),
     getLeadsForCohort(req.clientId, req.filters),
   ]);
 

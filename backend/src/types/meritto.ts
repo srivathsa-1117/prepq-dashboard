@@ -49,6 +49,8 @@ export interface MerittoLead {
   cf_ad_name?: string;
   cf_ad_set_name?: string;
   cf_campaign_name?: string;
+  /** Free text, not a clean dropdown despite the field type in getMetaData - live-confirmed values include "Online", "online", "Offline", "Both", "yes", "?????", and blank. See attributionLookupRepo.ts's normalizeCourseMode for how this gets interpreted. */
+  cf_course_mode?: string;
   total_outbound?: number;
   outbound_success?: number;
   [key: string]: unknown;
@@ -92,6 +94,8 @@ export interface NormalizedMerittoLead {
   email: string | null;
   phone: string | null;
   productCode: string | null;
+  /** Raw cf_course_mode text - see MerittoLead.cf_course_mode. Not yet normalized here; attributionLookupRepo.ts does that at resolution time. */
+  courseMode: string | null;
   source: string | null;
   campaign: string | null;
   adSet: string | null;
